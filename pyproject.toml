@@ -1,0 +1,83 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "persona-chess"
+version = "0.1.0"
+description = "Train lightweight chess personas from PGN files."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "Persona Chess Contributors" }
+]
+keywords = ["chess", "pgn", "machine-learning", "imitation-learning", "persona"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Games/Entertainment :: Board Games",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Typing :: Typed",
+]
+dependencies = [
+  "chess>=1.11.0",
+  "typer>=0.12.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2.0",
+  "mypy>=1.10.0",
+  "pre-commit>=3.7.0",
+  "pytest>=8.0.0",
+  "ruff>=0.6.0",
+]
+ml = [
+  "peft>=0.13.0",
+  "safetensors>=0.4.0",
+  "torch>=2.2.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/persona-chess/persona-chess"
+Repository = "https://github.com/persona-chess/persona-chess"
+Issues = "https://github.com/persona-chess/persona-chess/issues"
+
+[project.scripts]
+persona-chess = "persona_chess.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/persona_chess"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.mypy]
+python_version = "3.10"
+packages = ["persona_chess"]
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_any_generics = false
