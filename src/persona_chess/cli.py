@@ -2,13 +2,16 @@ import json
 from pathlib import Path
 from typing import Annotated, Literal, TypeVar
 
+import chess.engine
 import typer
 
 from persona_chess import PersonaChess
+from persona_chess.chess.legal import board_from_fen
 from persona_chess.dataset import SplitConfig, split_examples
 from persona_chess.dataset.builder import build_move_examples
 from persona_chess.dataset.jsonl import write_examples_jsonl
 from persona_chess.dataset.records import MoveExample
+from persona_chess.engines import EngineGuidanceConfig, predict_engine_guided_moves
 from persona_chess.evaluation.benchmark import run_benchmark
 from persona_chess.evaluation.metrics import evaluate_move_matching
 from persona_chess.exceptions import OptionalDependencyError
@@ -357,6 +360,56 @@ def move(
     persona = PersonaChess.load(model)
     predictions = [prediction.to_dict() for prediction in persona.predict(fen, top_k=top_k)]
     typer.echo(json.dumps(predictions, indent=2, sort_keys=True))
+
+
+@app.command("engine-move")
+def engine_move(
+    model: Annotated[Path, typer.Argument(help="Path to a persona artifact.")],
+    engine_path: Annotated[
+        Path,
+        typer.Option(help="Path to a UCI engine binary, such as Stockfish or Lc0."),
+    ],
+    fen: Annotated[str, typer.Option(help="FEN string or 'startpos'.")],
+    top_k: Annotated[int, typer.Option(help="Number of moves to return.")] = 3,
+    candidate_count: Annotated[
+        int,
+        typer.Option(help="Persona candidates to evaluate with the engine."),
+    ] = 12,
+    engine_weight: Annotated[
+        float,
+        typer.Option(help="Blend weight for engine quality in [0, 1]."),
+    ] = 0.35,
+    time_limit: Annotated[
+        float | None,
+        typer.Option(help="Engine analysis time per persona candidate, in seconds."),
+    ] = 0.05,
+    engine_depth: Annotated[
+        int | None,
+        typer.Option(help="Optional engine analysis depth per persona candidate."),
+    ] = None,
+) -> None:
+    persona = PersonaChess.load(model)
+    board = board_from_fen(fen)
+    config = EngineGuidanceConfig(
+        engine_weight=engine_weight,
+        candidate_count=candidate_count,
+        time_limit=time_limit,
+        depth=engine_depth,
+    )
+
+    try:
+        predictions = predict_engine_guided_moves(
+            persona.require_model(),
+            board=board,
+            engine_path=engine_path,
+            top_k=top_k,
+            config=config,
+        )
+    except (OSError, ValueError, chess.engine.EngineError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(json.dumps([prediction.to_dict() for prediction in predictions], indent=2))
 
 
 @app.command()

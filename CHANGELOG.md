@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Added engine-guided persona reranking with external UCI engines.
+
+## 0.1.0 - 2026-05-31
+
 - Added PGN ingestion, player filtering, persona profiling, and move datasets.
 - Added baseline persona models: `blend`, `frequency`, `opening_book`, and `phase`.
 - Added versioned persona, benchmark, neural manifest, vocabulary, and checkpoint artifacts.

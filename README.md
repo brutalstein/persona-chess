@@ -12,18 +12,9 @@ surface.
 
 ## Install
 
-After the first PyPI release:
-
 ```bash
 pip install persona-chess
 pip install "persona-chess[ml]"
-```
-
-Until then, install directly from GitHub:
-
-```bash
-pip install git+https://github.com/brutalstein/persona-chess.git
-pip install "persona-chess[ml] @ git+https://github.com/brutalstein/persona-chess.git"
 ```
 
 For local development:
@@ -57,6 +48,7 @@ persona-chess prepare-neural games.pgn "Target Player" --manifest-out adapter.ma
 persona-chess validate-neural adapter.manifest.json moves.vocab.json positions.vocab.json
 persona-chess train-neural games.pgn "Target Player" --checkpoint-dir checkpoints/player --use-lora
 persona-chess neural-move checkpoints/player --fen "startpos"
+persona-chess engine-move target-player.persona.json --engine-path /path/to/stockfish --fen "startpos"
 ```
 
 Built-in model backends:
@@ -65,6 +57,16 @@ Built-in model backends:
 - `frequency`: exact position memory with global legal fallback.
 - `opening_book`: early-game repertoire memory.
 - `phase`: game-phase move prior for opening, middlegame, and endgame positions.
+
+## Engine-Guided Persona Moves
+
+`persona-chess` can rerank persona candidates with an external UCI engine such as
+Stockfish or Lc0. The engine is not bundled and the persona model still supplies
+the candidate style; the UCI engine only acts as a quality signal.
+
+```bash
+persona-chess engine-move target-player.persona.json --engine-path /path/to/stockfish --fen "startpos" --engine-weight 0.35
+```
 
 ## Project Direction
 

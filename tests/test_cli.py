@@ -21,6 +21,13 @@ def test_cli_neural_move_help() -> None:
     assert "Neural checkpoint directory" in result.output
 
 
+def test_cli_engine_move_help() -> None:
+    result = CliRunner().invoke(app, ["engine-move", "--help"])
+
+    assert result.exit_code == 0
+    assert "UCI engine binary" in result.output
+
+
 def test_cli_prepare_and_validate_neural_artifacts(tmp_path: Path) -> None:
     runner = CliRunner()
     manifest = tmp_path / "adapter.manifest.json"

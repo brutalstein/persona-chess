@@ -26,6 +26,7 @@ Run a local smoke test:
 .\.venv\Scripts\persona-chess export-training tests\fixtures\sample.pgn "Target Player" --out sample.train.jsonl
 .\.venv\Scripts\persona-chess prepare-neural tests\fixtures\sample.pgn "Target Player" --manifest-out adapter.manifest.json --move-vocab-out moves.vocab.json --position-vocab-out positions.vocab.json
 .\.venv\Scripts\persona-chess validate-neural adapter.manifest.json moves.vocab.json positions.vocab.json
+.\.venv\Scripts\persona-chess engine-move --help
 ```
 
 Install optional ML dependencies:

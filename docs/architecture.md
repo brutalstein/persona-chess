@@ -26,6 +26,10 @@ register themselves through the model registry.
 `evaluation`
 : Measures move matching, coverage, rank quality, and prediction reasons.
 
+`engines`
+: Reranks persona candidates with optional external UCI engines such as Stockfish
+or Lc0 while keeping chess strength outside the core model code.
+
 `neural`
 : Defines the future Transformer + LoRA surface: model configs, adapter manifests,
 position tokenization, move vocabularies, position vocabularies, model-ready

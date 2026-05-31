@@ -9,7 +9,7 @@ behavior or make the project easier to use and maintain.
 2. Add neural benchmark reports for checkpoint inference.
 3. Add model cards for persona artifacts and benchmark reports.
 4. Add UCI engine mode for playing personas in chess GUIs.
-5. Prepare the first pre-alpha PyPI release.
+5. Add release automation for version bumps and changelog validation.
 
 ## Neural Path
 
@@ -23,4 +23,4 @@ behavior or make the project easier to use and maintain.
 1. Improve CLI ergonomics for real PGN collections.
 2. Add richer profile and style reports.
 3. Add examples and notebooks.
-4. Prepare a first PyPI release once the API stabilizes.
+4. Add engine-guided persona play examples using Stockfish or Lc0.
