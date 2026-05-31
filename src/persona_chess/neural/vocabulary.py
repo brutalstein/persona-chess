@@ -1,4 +1,5 @@
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -19,7 +20,7 @@ class MoveVocabulary:
     id_to_token: tuple[str, ...]
 
     @classmethod
-    def from_records(cls, records: list[TrainingRecord]) -> "MoveVocabulary":
+    def from_records(cls, records: Iterable[TrainingRecord]) -> "MoveVocabulary":
         moves = sorted(
             {
                 *_standard_uci_moves(),

@@ -59,12 +59,14 @@ class NeuralTrainingConfig:
     batch_size: int = 64
     learning_rate: float = 3e-4
     weight_decay: float = 0.01
+    gradient_accumulation_steps: int = 1
     warmup_ratio: float = 0.05
     seed: int = 42
 
     def __post_init__(self) -> None:
         _require_positive("epochs", self.epochs)
         _require_positive("batch_size", self.batch_size)
+        _require_positive("gradient_accumulation_steps", self.gradient_accumulation_steps)
         if self.learning_rate <= 0:
             raise ValueError("learning_rate must be positive")
         if self.weight_decay < 0:
@@ -76,7 +78,9 @@ class NeuralTrainingConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "NeuralTrainingConfig":
-        return cls(**data)
+        payload = dict(data)
+        payload.setdefault("gradient_accumulation_steps", 1)
+        return cls(**payload)
 
 
 def _require_positive(name: str, value: int) -> None:

@@ -1,4 +1,5 @@
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -24,7 +25,7 @@ class PositionVocabulary:
     @classmethod
     def from_records(
         cls,
-        records: list[TrainingRecord],
+        records: Iterable[TrainingRecord],
         *,
         tokenizer: PositionTokenizer | None = None,
     ) -> "PositionVocabulary":

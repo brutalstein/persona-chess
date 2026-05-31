@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 - Added engine-guided persona reranking with external UCI engines.
 - Added persona model cards with style summaries, data-quality warnings, and model recommendations.
+- Added streaming PGN, JSONL, neural artifact, and policy-batch workflows for large training collections.
 
 ## 0.1.0 - 2026-05-31
 

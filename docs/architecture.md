@@ -11,9 +11,11 @@ while leaving room for a Transformer + LoRA backend later.
 
 `dataset`
 : Converts player games into supervised move examples and deterministic splits.
+Large PGN workflows use streaming iterators so examples are not kept in memory.
 
 `training`
 : Exports model-ready records with legal move masks and target move indexes.
+Training JSONL can be written and read incrementally for large collections.
 
 `profile`
 : Builds player-level summaries such as first-move and result distributions.
@@ -92,6 +94,10 @@ The neural layer is split into pure-Python and optional PyTorch parts:
 `samples`
 : Converts training records into `input_ids`, `attention_mask`, legal move ids,
 legal move masks, target move ids, and target legal indices.
+
+`streaming`
+: Builds standard move vocabularies, position vocabularies, and lazy policy batches
+from record iterators or JSONL streams.
 
 `torch_backend`
 : Builds a minimal Transformer policy model only when PyTorch is installed.

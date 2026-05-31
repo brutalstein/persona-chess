@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
@@ -74,7 +74,12 @@ class TrainingRecord:
 
 
 def build_training_records(examples: Iterable[MoveExample]) -> list[TrainingRecord]:
-    return [TrainingRecord.from_example(example) for example in examples]
+    return list(iter_training_records(examples))
+
+
+def iter_training_records(examples: Iterable[MoveExample]) -> Iterator[TrainingRecord]:
+    for example in examples:
+        yield TrainingRecord.from_example(example)
 
 
 def _side_to_move(board: chess.Board) -> SideToMove:

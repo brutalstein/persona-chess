@@ -28,6 +28,49 @@ def test_cli_engine_move_help() -> None:
     assert "UCI engine binary" in result.output
 
 
+def test_cli_streaming_training_and_neural_preparation(tmp_path: Path) -> None:
+    runner = CliRunner()
+    records = tmp_path / "target.train.jsonl"
+    manifest = tmp_path / "adapter.manifest.json"
+    move_vocab = tmp_path / "moves.vocab.json"
+    position_vocab = tmp_path / "positions.vocab.json"
+
+    export = runner.invoke(
+        app,
+        [
+            "export-training-stream",
+            str(FIXTURE),
+            "Target Player",
+            "--out",
+            str(records),
+        ],
+    )
+    prepare = runner.invoke(
+        app,
+        [
+            "prepare-neural-stream",
+            str(records),
+            "Target Player",
+            "--manifest-out",
+            str(manifest),
+            "--move-vocab-out",
+            str(move_vocab),
+            "--position-vocab-out",
+            str(position_vocab),
+            "--batch-size",
+            "4",
+        ],
+    )
+
+    assert export.exit_code == 0
+    assert "Wrote 10 training records" in export.output
+    assert prepare.exit_code == 0
+    assert "Counted 10 streaming training records" in prepare.output
+    assert manifest.exists()
+    assert move_vocab.exists()
+    assert position_vocab.exists()
+
+
 def test_cli_model_card_writes_json_and_markdown(tmp_path: Path) -> None:
     runner = CliRunner()
     json_out = tmp_path / "target.model-card.json"

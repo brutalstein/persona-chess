@@ -22,7 +22,10 @@ from persona_chess.neural.lora import (
     summarize_trainable_parameters,
 )
 from persona_chess.neural.manifest import ADAPTER_MANIFEST_SCHEMA, AdapterManifest
-from persona_chess.neural.planning import create_adapter_manifest
+from persona_chess.neural.planning import (
+    create_adapter_manifest,
+    create_adapter_manifest_from_vocabulary_sizes,
+)
 from persona_chess.neural.position_vocabulary import POSITION_VOCABULARY_SCHEMA, PositionVocabulary
 from persona_chess.neural.samples import (
     PolicyBatch,
@@ -30,6 +33,12 @@ from persona_chess.neural.samples import (
     build_policy_sample,
     build_policy_samples,
     collate_policy_samples,
+    iter_policy_batches,
+    iter_policy_samples,
+)
+from persona_chess.neural.streaming import (
+    StreamingNeuralArtifacts,
+    prepare_streaming_neural_artifacts,
 )
 from persona_chess.neural.tokens import PositionTokenizer
 from persona_chess.neural.torch_backend import (
@@ -38,7 +47,11 @@ from persona_chess.neural.torch_backend import (
     is_torch_available,
     policy_batch_to_tensors,
 )
-from persona_chess.neural.trainer import TrainingResult, train_policy_model
+from persona_chess.neural.trainer import (
+    TrainingResult,
+    train_policy_model,
+    train_policy_model_streaming,
+)
 from persona_chess.neural.validation import NeuralArtifactValidation, validate_neural_artifacts
 from persona_chess.neural.vocabulary import MOVE_VOCABULARY_SCHEMA, MoveVocabulary
 
@@ -59,6 +72,7 @@ __all__ = [
     "PolicySample",
     "PositionTokenizer",
     "PositionVocabulary",
+    "StreamingNeuralArtifacts",
     "TrainingResult",
     "TransformerPolicyConfig",
     "apply_lora_adapter",
@@ -67,16 +81,21 @@ __all__ = [
     "build_transformer_policy_model",
     "collate_policy_samples",
     "create_adapter_manifest",
+    "create_adapter_manifest_from_vocabulary_sizes",
     "gather_legal_logits",
+    "iter_policy_batches",
+    "iter_policy_samples",
     "is_peft_available",
     "is_torch_available",
     "legal_move_id_entries",
     "load_torch_policy_checkpoint",
     "policy_batch_to_tensors",
+    "prepare_streaming_neural_artifacts",
     "predict_policy_moves",
     "predict_policy_moves_from_checkpoint",
     "save_torch_policy_checkpoint",
     "summarize_trainable_parameters",
     "train_policy_model",
+    "train_policy_model_streaming",
     "validate_neural_artifacts",
 ]

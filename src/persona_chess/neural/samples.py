@@ -1,3 +1,4 @@
+from collections.abc import Iterable, Iterator
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -68,23 +69,69 @@ def build_policy_sample(
 
 
 def build_policy_samples(
-    records: list[TrainingRecord],
+    records: Iterable[TrainingRecord],
     *,
     position_vocabulary: PositionVocabulary,
     move_vocabulary: MoveVocabulary,
     max_sequence_length: int,
     tokenizer: PositionTokenizer | None = None,
 ) -> list[PolicySample]:
-    return [
-        build_policy_sample(
+    return list(
+        iter_policy_samples(
+            records,
+            position_vocabulary=position_vocabulary,
+            move_vocabulary=move_vocabulary,
+            max_sequence_length=max_sequence_length,
+            tokenizer=tokenizer,
+        )
+    )
+
+
+def iter_policy_samples(
+    records: Iterable[TrainingRecord],
+    *,
+    position_vocabulary: PositionVocabulary,
+    move_vocabulary: MoveVocabulary,
+    max_sequence_length: int,
+    tokenizer: PositionTokenizer | None = None,
+) -> Iterator[PolicySample]:
+    for record in records:
+        yield build_policy_sample(
             record,
             position_vocabulary=position_vocabulary,
             move_vocabulary=move_vocabulary,
             max_sequence_length=max_sequence_length,
             tokenizer=tokenizer,
         )
-        for record in records
-    ]
+
+
+def iter_policy_batches(
+    records: Iterable[TrainingRecord],
+    *,
+    position_vocabulary: PositionVocabulary,
+    move_vocabulary: MoveVocabulary,
+    max_sequence_length: int,
+    batch_size: int,
+    tokenizer: PositionTokenizer | None = None,
+) -> Iterator[PolicyBatch]:
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+
+    batch: list[PolicySample] = []
+    for sample in iter_policy_samples(
+        records,
+        position_vocabulary=position_vocabulary,
+        move_vocabulary=move_vocabulary,
+        max_sequence_length=max_sequence_length,
+        tokenizer=tokenizer,
+    ):
+        batch.append(sample)
+        if len(batch) >= batch_size:
+            yield collate_policy_samples(batch, move_pad_id=move_vocabulary.pad_id)
+            batch = []
+
+    if batch:
+        yield collate_policy_samples(batch, move_pad_id=move_vocabulary.pad_id)
 
 
 def collate_policy_samples(

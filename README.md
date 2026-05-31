@@ -43,11 +43,14 @@ persona-chess model-card games.pgn "Target Player" --out target-player.model-car
 persona-chess train games.pgn "Target Player" --model-type blend --out target-player.persona.json
 persona-chess move target-player.persona.json --fen "startpos"
 persona-chess export-training games.pgn "Target Player" --out target-player.train.jsonl
+persona-chess export-training-stream games.pgn "Target Player" --out target-player.train.jsonl
 persona-chess split games.pgn "Target Player" --train-out train.jsonl --test-out test.jsonl
 persona-chess benchmark games.pgn "Target Player" --model-type blend --out benchmark.json
 persona-chess prepare-neural games.pgn "Target Player" --manifest-out adapter.manifest.json --move-vocab-out moves.vocab.json --position-vocab-out positions.vocab.json
+persona-chess prepare-neural-stream target-player.train.jsonl "Target Player" --manifest-out adapter.manifest.json --move-vocab-out moves.vocab.json --position-vocab-out positions.vocab.json
 persona-chess validate-neural adapter.manifest.json moves.vocab.json positions.vocab.json
 persona-chess train-neural games.pgn "Target Player" --checkpoint-dir checkpoints/player --use-lora
+persona-chess train-neural-stream target-player.train.jsonl --manifest adapter.manifest.json --move-vocab moves.vocab.json --position-vocab positions.vocab.json --checkpoint-dir checkpoints/player
 persona-chess neural-move checkpoints/player --fen "startpos"
 persona-chess engine-move target-player.persona.json --engine-path /path/to/stockfish --fen "startpos"
 ```
@@ -78,6 +81,17 @@ the candidate style; the UCI engine only acts as a quality signal.
 
 ```bash
 persona-chess engine-move target-player.persona.json --engine-path /path/to/stockfish --fen "startpos" --engine-weight 0.35
+```
+
+## Large PGN Training
+
+For large PGN collections, use the streaming commands. They keep the training
+records on disk and only materialize the active batch during neural training.
+
+```bash
+persona-chess export-training-stream games.pgn "Target Player" --out target-player.train.jsonl
+persona-chess prepare-neural-stream target-player.train.jsonl "Target Player" --manifest-out adapter.manifest.json --move-vocab-out moves.vocab.json --position-vocab-out positions.vocab.json
+persona-chess train-neural-stream target-player.train.jsonl --manifest adapter.manifest.json --move-vocab moves.vocab.json --position-vocab positions.vocab.json --checkpoint-dir checkpoints/player --use-lora
 ```
 
 ## Project Direction

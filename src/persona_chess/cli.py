@@ -1,4 +1,5 @@
 import json
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Annotated, Literal, TypeVar
 
@@ -8,7 +9,7 @@ import typer
 from persona_chess import PersonaChess
 from persona_chess.chess.legal import board_from_fen
 from persona_chess.dataset import SplitConfig, split_examples
-from persona_chess.dataset.builder import build_move_examples
+from persona_chess.dataset.builder import build_move_examples, iter_move_examples
 from persona_chess.dataset.jsonl import write_examples_jsonl
 from persona_chess.dataset.records import MoveExample
 from persona_chess.engines import EngineGuidanceConfig, predict_engine_guided_moves
@@ -22,19 +23,29 @@ from persona_chess.neural import (
     LoraConfig,
     MoveVocabulary,
     NeuralTrainingConfig,
+    PolicyBatch,
     PositionVocabulary,
     TransformerPolicyConfig,
     build_policy_samples,
     collate_policy_samples,
     create_adapter_manifest,
+    create_adapter_manifest_from_vocabulary_sizes,
+    iter_policy_batches,
     predict_policy_moves_from_checkpoint,
+    prepare_streaming_neural_artifacts,
     save_torch_policy_checkpoint,
     train_policy_model,
+    train_policy_model_streaming,
     validate_neural_artifacts,
 )
 from persona_chess.pgn.filters import GameFilter, PlayerColor
 from persona_chess.profile.builder import build_profile
-from persona_chess.training import build_training_records, write_training_records_jsonl
+from persona_chess.training import (
+    build_training_records,
+    iter_training_records,
+    read_training_records_jsonl,
+    write_training_records_jsonl,
+)
 
 DatasetOutputFormat = Literal["examples", "training"]
 ModelCardOutputFormat = Literal["json", "markdown"]
@@ -145,6 +156,30 @@ def export_training(
     typer.echo(f"Wrote {len(records)} training records: {out}")
 
 
+@app.command("export-training-stream")
+def export_training_stream(
+    pgn: Annotated[Path, typer.Argument(help="Path to a PGN file.")],
+    player: Annotated[str, typer.Argument(help="Player name as written in PGN headers.")],
+    out: Annotated[Path, typer.Option(help="Training JSONL output path.")],
+    color: Annotated[PlayerColor, typer.Option(help="Filter games by player color.")] = "both",
+    max_games: Annotated[
+        int | None,
+        typer.Option(help="Limit the number of matched games."),
+    ] = None,
+    skip_first_plies: Annotated[
+        int,
+        typer.Option(help="Skip early plies when exporting records."),
+    ] = 0,
+) -> None:
+    examples = iter_move_examples(
+        pgn,
+        GameFilter(player=player, color=color, max_games=max_games),
+        skip_first_plies=skip_first_plies,
+    )
+    written = write_training_records_jsonl(out, iter_training_records(examples))
+    typer.echo(f"Wrote {written} training records: {out}")
+
+
 @app.command("prepare-neural")
 def prepare_neural(
     pgn: Annotated[Path, typer.Argument(help="Path to a PGN file.")],
@@ -190,6 +225,73 @@ def prepare_neural(
     typer.echo(f"Wrote position vocabulary: {position_vocab_out}")
 
 
+@app.command("prepare-neural-stream")
+def prepare_neural_stream(
+    training_records: Annotated[
+        Path,
+        typer.Argument(help="Training JSONL path from export-training-stream."),
+    ],
+    player: Annotated[str, typer.Argument(help="Player name for the adapter manifest.")],
+    manifest_out: Annotated[Path, typer.Option(help="Adapter manifest output path.")],
+    move_vocab_out: Annotated[
+        Path,
+        typer.Option("--move-vocab-out", "--vocab-out", help="Move vocabulary output path."),
+    ],
+    position_vocab_out: Annotated[Path, typer.Option(help="Position vocabulary output path.")],
+    base_model: Annotated[
+        str,
+        typer.Option(help="Base model identifier for the future adapter."),
+    ] = "persona-chess/base-small",
+    epochs: Annotated[int, typer.Option(help="Training epochs for the manifest.")] = 3,
+    batch_size: Annotated[int, typer.Option(help="Batch size for streaming training.")] = 64,
+    learning_rate: Annotated[float, typer.Option(help="Learning rate.")] = 3e-4,
+    gradient_accumulation_steps: Annotated[
+        int,
+        typer.Option(help="Optimizer steps are run after this many batches."),
+    ] = 1,
+    d_model: Annotated[int, typer.Option(help="Transformer hidden size.")] = 256,
+    n_layers: Annotated[int, typer.Option(help="Transformer layer count.")] = 6,
+    n_heads: Annotated[int, typer.Option(help="Transformer attention head count.")] = 8,
+    dropout: Annotated[float, typer.Option(help="Transformer dropout.")] = 0.1,
+    lora_rank: Annotated[int, typer.Option(help="LoRA rank.")] = 8,
+    lora_alpha: Annotated[int, typer.Option(help="LoRA alpha.")] = 16,
+    lora_dropout: Annotated[float, typer.Option(help="LoRA dropout.")] = 0.05,
+) -> None:
+    artifacts = prepare_streaming_neural_artifacts(read_training_records_jsonl(training_records))
+    transformer = TransformerPolicyConfig(
+        max_sequence_length=256,
+        d_model=d_model,
+        n_layers=n_layers,
+        n_heads=n_heads,
+        dropout=dropout,
+    )
+    training = NeuralTrainingConfig(
+        epochs=epochs,
+        batch_size=batch_size,
+        learning_rate=learning_rate,
+        gradient_accumulation_steps=gradient_accumulation_steps,
+    )
+    lora = LoraConfig(rank=lora_rank, alpha=lora_alpha, dropout=lora_dropout)
+    manifest = create_adapter_manifest_from_vocabulary_sizes(
+        player=player,
+        base_model=base_model,
+        transformer=transformer,
+        training=training,
+        lora=lora,
+        move_vocabulary_size=artifacts.move_vocabulary.size,
+        position_vocabulary_size=artifacts.position_vocabulary.size,
+        training_examples=artifacts.training_examples,
+    )
+
+    artifacts.move_vocabulary.save(move_vocab_out)
+    artifacts.position_vocabulary.save(position_vocab_out)
+    manifest.save(manifest_out)
+    typer.echo(f"Wrote neural manifest: {manifest_out}")
+    typer.echo(f"Wrote move vocabulary: {move_vocab_out}")
+    typer.echo(f"Wrote position vocabulary: {position_vocab_out}")
+    typer.echo(f"Counted {artifacts.training_examples} streaming training records.")
+
+
 @app.command("validate-neural")
 def validate_neural(
     manifest: Annotated[Path, typer.Argument(help="Adapter manifest path.")],
@@ -228,6 +330,10 @@ def train_neural(
     epochs: Annotated[int, typer.Option(help="Training epochs.")] = 3,
     batch_size: Annotated[int, typer.Option(help="Batch size.")] = 64,
     learning_rate: Annotated[float, typer.Option(help="Learning rate.")] = 3e-4,
+    gradient_accumulation_steps: Annotated[
+        int,
+        typer.Option(help="Optimizer steps are run after this many batches."),
+    ] = 1,
     d_model: Annotated[int, typer.Option(help="Transformer hidden size.")] = 256,
     n_layers: Annotated[int, typer.Option(help="Transformer layer count.")] = 6,
     n_heads: Annotated[int, typer.Option(help="Transformer attention head count.")] = 8,
@@ -254,6 +360,7 @@ def train_neural(
         epochs=epochs,
         batch_size=batch_size,
         learning_rate=learning_rate,
+        gradient_accumulation_steps=gradient_accumulation_steps,
     )
     lora = LoraConfig(rank=lora_rank, alpha=lora_alpha, dropout=lora_dropout)
     move_vocabulary = MoveVocabulary.from_records(records)
@@ -290,6 +397,70 @@ def train_neural(
             checkpoint_dir,
             model=model,
             adapter_manifest=manifest,
+            move_vocabulary=move_vocabulary,
+            position_vocabulary=position_vocabulary,
+            training_result=result,
+            lora_applied=use_lora,
+        )
+    except OptionalDependencyError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"Wrote neural checkpoint: {checkpoint_dir / checkpoint.model_state_file}")
+    typer.echo(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+
+
+@app.command("train-neural-stream")
+def train_neural_stream(
+    training_records: Annotated[
+        Path,
+        typer.Argument(help="Training JSONL path from export-training-stream."),
+    ],
+    checkpoint_dir: Annotated[Path, typer.Option(help="Checkpoint output directory.")],
+    manifest: Annotated[Path, typer.Option(help="Adapter manifest path.")],
+    move_vocab: Annotated[Path, typer.Option(help="Move vocabulary path.")],
+    position_vocab: Annotated[Path, typer.Option(help="Position vocabulary path.")],
+    use_lora: Annotated[
+        bool,
+        typer.Option("--use-lora/--full-finetune", help="Train a PEFT LoRA adapter."),
+    ] = True,
+    device: Annotated[str | None, typer.Option(help="Torch device, such as cpu or cuda.")] = None,
+) -> None:
+    adapter_manifest = AdapterManifest.load(manifest)
+    move_vocabulary = MoveVocabulary.load(move_vocab)
+    position_vocabulary = PositionVocabulary.load(position_vocab)
+    validation = validate_neural_artifacts(
+        manifest=adapter_manifest,
+        move_vocabulary=move_vocabulary,
+        position_vocabulary=position_vocabulary,
+    )
+    if not validation.ok:
+        typer.echo(json.dumps(validation.to_dict(), indent=2, sort_keys=True), err=True)
+        raise typer.Exit(code=1)
+
+    def batch_factory() -> Iterable[PolicyBatch]:
+        return iter_policy_batches(
+            read_training_records_jsonl(training_records),
+            position_vocabulary=position_vocabulary,
+            move_vocabulary=move_vocabulary,
+            max_sequence_length=adapter_manifest.transformer.max_sequence_length,
+            batch_size=adapter_manifest.training.batch_size,
+        )
+
+    try:
+        model, result = train_policy_model_streaming(
+            batch_factory,
+            transformer=adapter_manifest.transformer,
+            training=adapter_manifest.training,
+            position_vocabulary_size=position_vocabulary.size,
+            move_vocabulary_size=move_vocabulary.size,
+            device=device,
+            lora=adapter_manifest.lora if use_lora else None,
+        )
+        checkpoint = save_torch_policy_checkpoint(
+            checkpoint_dir,
+            model=model,
+            adapter_manifest=adapter_manifest,
             move_vocabulary=move_vocabulary,
             position_vocabulary=position_vocabulary,
             training_result=result,

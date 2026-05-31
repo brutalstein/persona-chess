@@ -1,3 +1,4 @@
+from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -38,6 +39,27 @@ def train_policy_model(
     device: str | None = None,
     lora: LoraConfig | None = None,
 ) -> tuple[Any, TrainingResult]:
+    return train_policy_model_streaming(
+        lambda: iter(batches),
+        transformer=transformer,
+        training=training,
+        position_vocabulary_size=position_vocabulary_size,
+        move_vocabulary_size=move_vocabulary_size,
+        device=device,
+        lora=lora,
+    )
+
+
+def train_policy_model_streaming(
+    batch_factory: Callable[[], Iterable[PolicyBatch]],
+    *,
+    transformer: TransformerPolicyConfig,
+    training: NeuralTrainingConfig,
+    position_vocabulary_size: int,
+    move_vocabulary_size: int,
+    device: str | None = None,
+    lora: LoraConfig | None = None,
+) -> tuple[Any, TrainingResult]:
     torch = require_torch()
     torch.manual_seed(training.seed)
 
@@ -65,8 +87,10 @@ def train_policy_model(
     steps = 0
 
     model.train()
+    optimizer.zero_grad(set_to_none=True)
     for _ in range(training.epochs):
-        for batch in batches:
+        accumulated = 0
+        for batch in batch_factory():
             if batch.size == 0:
                 continue
             tensors = policy_batch_to_tensors(batch, device=device)
@@ -77,13 +101,20 @@ def train_policy_model(
                 tensors["legal_move_mask"],
             )
             loss = loss_fn(legal_logits, tensors["target_legal_indices"])
+            scaled_loss = loss / training.gradient_accumulation_steps
 
-            optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            optimizer.step()
+            scaled_loss.backward()
+            accumulated += 1
+            if accumulated >= training.gradient_accumulation_steps:
+                optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
+                accumulated = 0
 
             final_loss = float(loss.detach().cpu().item())
             steps += 1
+        if accumulated:
+            optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
 
     return model, TrainingResult(
         epochs=training.epochs,

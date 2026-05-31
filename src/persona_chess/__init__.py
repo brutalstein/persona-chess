@@ -21,7 +21,7 @@ from persona_chess.neural import (
 )
 from persona_chess.pgn.filters import GameFilter
 from persona_chess.profile.types import PersonaProfile
-from persona_chess.training.records import TrainingRecord
+from persona_chess.training.records import TrainingRecord, iter_training_records
 
 __all__ = [
     "FrequencyPersonaModel",
@@ -47,4 +47,5 @@ __all__ = [
     "TrainingRecord",
     "__version__",
     "build_model_card",
+    "iter_training_records",
 ]

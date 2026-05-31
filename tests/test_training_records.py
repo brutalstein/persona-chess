@@ -1,9 +1,10 @@
 from pathlib import Path
 
-from persona_chess.dataset.builder import build_move_examples
+from persona_chess.dataset.builder import build_move_examples, iter_move_examples
 from persona_chess.pgn.filters import GameFilter
 from persona_chess.training import (
     build_training_records,
+    iter_training_records,
     read_training_records_jsonl,
     write_training_records_jsonl,
 )
@@ -28,7 +29,16 @@ def test_training_records_round_trip_jsonl(tmp_path: Path) -> None:
     records = build_training_records(examples)
     output = tmp_path / "records.jsonl"
 
-    write_training_records_jsonl(output, records)
+    written = write_training_records_jsonl(output, records)
     loaded = list(read_training_records_jsonl(output))
 
+    assert written == len(records)
     assert loaded == records
+
+
+def test_streaming_training_records_match_in_memory_records() -> None:
+    game_filter = GameFilter(player="Target Player")
+    in_memory = build_training_records(build_move_examples(FIXTURE, game_filter))
+    streamed = list(iter_training_records(iter_move_examples(FIXTURE, game_filter)))
+
+    assert streamed == in_memory

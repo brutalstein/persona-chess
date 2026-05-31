@@ -20,10 +20,13 @@ from persona_chess.neural import (
     build_transformer_policy_model,
     collate_policy_samples,
     create_adapter_manifest,
+    create_adapter_manifest_from_vocabulary_sizes,
     is_peft_available,
     is_torch_available,
+    iter_policy_batches,
     legal_move_id_entries,
     predict_policy_moves_from_checkpoint,
+    prepare_streaming_neural_artifacts,
     save_torch_policy_checkpoint,
     summarize_trainable_parameters,
     validate_neural_artifacts,
@@ -118,6 +121,43 @@ def test_policy_samples_and_batches_are_model_ready() -> None:
     assert len(batch.legal_move_ids[0]) == len(batch.legal_move_ids[1])
     assert batch.target_legal_indices[0] == records[0].target_index
     assert samples[0].target_move_id == move_vocabulary.encode(records[0].target_move)
+
+
+def test_streaming_policy_batches_are_model_ready() -> None:
+    examples = build_move_examples(FIXTURE, GameFilter(player="Target Player"))
+    records = build_training_records(examples)
+    artifacts = prepare_streaming_neural_artifacts(iter(records))
+
+    batches = list(
+        iter_policy_batches(
+            iter(records),
+            position_vocabulary=artifacts.position_vocabulary,
+            move_vocabulary=artifacts.move_vocabulary,
+            max_sequence_length=32,
+            batch_size=3,
+        )
+    )
+
+    assert artifacts.training_examples == len(records)
+    assert artifacts.move_vocabulary.size > 4000
+    assert sum(batch.size for batch in batches) == len(records)
+    assert batches[0].size == 3
+
+
+def test_create_adapter_manifest_from_streaming_artifact_sizes() -> None:
+    examples = build_move_examples(FIXTURE, GameFilter(player="Target Player"))
+    records = build_training_records(examples)
+    artifacts = prepare_streaming_neural_artifacts(iter(records))
+    manifest = create_adapter_manifest_from_vocabulary_sizes(
+        player="Target Player",
+        move_vocabulary_size=artifacts.move_vocabulary.size,
+        position_vocabulary_size=artifacts.position_vocabulary.size,
+        training_examples=artifacts.training_examples,
+    )
+
+    assert manifest.move_vocabulary_size == artifacts.move_vocabulary.size
+    assert manifest.position_vocabulary_size == artifacts.position_vocabulary.size
+    assert manifest.training_examples == len(records)
 
 
 def test_adapter_manifest_captures_both_vocabularies() -> None:
@@ -310,3 +350,18 @@ def test_neural_configs_validate_values() -> None:
 
     with pytest.raises(ValueError):
         NeuralTrainingConfig(batch_size=0)
+
+
+def test_neural_training_config_loads_legacy_payloads() -> None:
+    config = NeuralTrainingConfig.from_dict(
+        {
+            "epochs": 1,
+            "batch_size": 2,
+            "learning_rate": 0.001,
+            "weight_decay": 0.0,
+            "warmup_ratio": 0.0,
+            "seed": 7,
+        }
+    )
+
+    assert config.gradient_accumulation_steps == 1
