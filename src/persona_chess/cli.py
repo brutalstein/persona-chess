@@ -3,7 +3,7 @@ import json
 import math
 import random
 from collections.abc import Iterable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Annotated, Any, Literal, TypeVar
 
@@ -23,25 +23,30 @@ from persona_chess.dataset.records import MoveExample
 from persona_chess.engines import EngineGuidanceConfig, predict_engine_guided_moves
 from persona_chess.evaluation.benchmark import run_benchmark
 from persona_chess.evaluation.metrics import evaluate_move_matching
-from persona_chess.exceptions import OptionalDependencyError
+from persona_chess.evaluation.persona_report import evaluate_persona_quality
+from persona_chess.exceptions import ArtifactError, OptionalDependencyError
 from persona_chess.model_card import build_model_card
 from persona_chess.models.registry import supported_model_types
 from persona_chess.neural import (
     AdapterManifest,
     LoraConfig,
     MixedPrecisionMode,
+    ModelRegistry,
     MoveVocabulary,
     NeuralAutoConfig,
     NeuralConfigProfile,
     NeuralTrainingConfig,
     PolicyBatch,
     PositionVocabulary,
+    TrainingEpochResult,
+    TrainingResult,
     TransformerPolicyConfig,
     build_policy_samples,
     collate_policy_samples,
     create_adapter_manifest_from_vocabulary_sizes,
     iter_policy_batches,
     load_torch_policy_state,
+    load_torch_training_state,
     predict_policy_moves_from_checkpoint,
     prepare_streaming_neural_artifacts,
     recommend_neural_config,
@@ -50,6 +55,7 @@ from persona_chess.neural import (
     train_policy_model_streaming,
     validate_neural_artifacts,
 )
+from persona_chess.neural.model_hub import download_remote_model, resolve_model_reference
 from persona_chess.pgn.filters import GameFilter, PlayerColor
 from persona_chess.profile.builder import build_profile
 from persona_chess.training import (
@@ -68,6 +74,86 @@ app = typer.Typer(
     help="Train and inspect lightweight chess personas from PGN files.",
     no_args_is_help=True,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _ResumeState:
+    model_state_dict: dict[str, Any] | None = None
+    optimizer_state_dict: dict[str, Any] | None = None
+    scheduler_state_dict: dict[str, Any] | None = None
+    scaler_state_dict: dict[str, Any] | None = None
+    next_epoch: int = 1
+
+
+class _EpochCheckpointCallback:
+    def __init__(
+        self,
+        *,
+        checkpoint_dir: Path,
+        adapter_manifest: AdapterManifest,
+        move_vocabulary: MoveVocabulary,
+        position_vocabulary: PositionVocabulary,
+        lora_applied: bool,
+        save_best: bool,
+        checkpoint_every_epoch: bool,
+    ) -> None:
+        self.checkpoint_dir = checkpoint_dir
+        self.adapter_manifest = adapter_manifest
+        self.move_vocabulary = move_vocabulary
+        self.position_vocabulary = position_vocabulary
+        self.lora_applied = lora_applied
+        self.save_best = save_best
+        self.checkpoint_every_epoch = checkpoint_every_epoch
+        self.best_score: float | None = None
+        self.latest_training_state: dict[str, Any] | None = None
+
+    def __call__(
+        self,
+        *,
+        model: Any,
+        epoch_result: TrainingEpochResult,
+        optimizer: Any,
+        scheduler: Any | None,
+        scaler: Any,
+    ) -> None:
+        self.latest_training_state = _training_state_payload(
+            epoch_result=epoch_result,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            scaler=scaler,
+        )
+        if self.checkpoint_every_epoch:
+            self._save_checkpoint(f"epoch-{epoch_result.epoch:04d}", model, epoch_result)
+        if self.save_best and self._is_best(epoch_result):
+            self._save_checkpoint("best", model, epoch_result)
+
+    def _is_best(self, epoch_result: TrainingEpochResult) -> bool:
+        score = (
+            epoch_result.validation_loss
+            if epoch_result.validation_loss is not None
+            else epoch_result.average_train_loss
+        )
+        if self.best_score is None or score < self.best_score:
+            self.best_score = score
+            return True
+        return False
+
+    def _save_checkpoint(
+        self,
+        name: str,
+        model: Any,
+        epoch_result: TrainingEpochResult,
+    ) -> None:
+        save_torch_policy_checkpoint(
+            self.checkpoint_dir / name,
+            model=model,
+            adapter_manifest=self.adapter_manifest,
+            move_vocabulary=self.move_vocabulary,
+            position_vocabulary=self.position_vocabulary,
+            training_result=_training_result_from_epoch(epoch_result),
+            lora_applied=self.lora_applied,
+            training_state=self.latest_training_state,
+        )
 
 
 @app.command()
@@ -581,6 +667,29 @@ def recommend_neural_config_command(
     typer.echo(json.dumps(auto_config.to_dict(), indent=2, sort_keys=True))
 
 
+@app.command("remote-models")
+def remote_models(
+    registry: Annotated[Path, typer.Argument(help="Model registry JSON path.")],
+) -> None:
+    loaded = ModelRegistry.load(registry)
+    typer.echo(json.dumps(loaded.to_dict(), indent=2, sort_keys=True))
+
+
+@app.command("download-model")
+def download_model(
+    model: Annotated[str, typer.Argument(help="Remote model name from the registry.")],
+    registry: Annotated[Path, typer.Option(help="Model registry JSON path.")],
+    cache_dir: Annotated[
+        Path | None,
+        typer.Option(help="Optional model cache directory."),
+    ] = None,
+    force: Annotated[bool, typer.Option(help="Redownload even when cached.")] = False,
+) -> None:
+    loaded = ModelRegistry.load(registry)
+    result = download_remote_model(loaded.get(model), cache_dir=cache_dir, force=force)
+    typer.echo(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+
+
 @app.command("validate-neural")
 def validate_neural(
     manifest: Annotated[Path, typer.Argument(help="Adapter manifest path.")],
@@ -603,8 +712,20 @@ def train_neural(
     player: Annotated[str, typer.Argument(help="Player name as written in PGN headers.")],
     checkpoint_dir: Annotated[Path, typer.Option(help="Checkpoint output directory.")],
     init_checkpoint: Annotated[
+        str | None,
+        typer.Option(help="Optional local or remote full/base checkpoint to initialize from."),
+    ] = None,
+    resume_checkpoint: Annotated[
+        str | None,
+        typer.Option(help="Optional local or remote checkpoint to resume training from."),
+    ] = None,
+    model_registry: Annotated[
         Path | None,
-        typer.Option(help="Optional full/base checkpoint to initialize model weights from."),
+        typer.Option(help="Optional model registry for remote checkpoint references."),
+    ] = None,
+    model_cache_dir: Annotated[
+        Path | None,
+        typer.Option(help="Optional model cache directory for remote checkpoint references."),
     ] = None,
     color: Annotated[PlayerColor, typer.Option(help="Filter games by player color.")] = "both",
     max_games: Annotated[
@@ -635,6 +756,14 @@ def train_neural(
         float,
         typer.Option(help="Hold out this ratio of records for validation."),
     ] = 0.0,
+    save_best: Annotated[
+        bool,
+        typer.Option("--save-best/--no-save-best", help="Save the best epoch checkpoint."),
+    ] = True,
+    checkpoint_every_epoch: Annotated[
+        bool,
+        typer.Option(help="Save an epoch checkpoint after every epoch."),
+    ] = False,
     epochs: Annotated[
         int | None,
         typer.Option(help="Training epochs. Auto-selected when omitted."),
@@ -743,6 +872,11 @@ def train_neural(
         position_vocabulary_size=position_vocabulary.size,
         training_examples=len(train_records),
     )
+    registry = _load_model_registry(model_registry)
+    if init_checkpoint is not None and resume_checkpoint is not None:
+        raise typer.BadParameter(
+            "--init-checkpoint and --resume-checkpoint cannot be used together"
+        )
     try:
         initial_state_dict = _load_initial_policy_state(
             init_checkpoint,
@@ -750,10 +884,24 @@ def train_neural(
             move_vocabulary=move_vocabulary,
             position_vocabulary=position_vocabulary,
             device=device,
+            registry=registry,
+            cache_dir=model_cache_dir,
+        )
+        resume_state = _load_resume_policy_state(
+            resume_checkpoint,
+            transformer=transformer,
+            move_vocabulary=move_vocabulary,
+            position_vocabulary=position_vocabulary,
+            device=device,
+            use_lora=use_lora,
+            registry=registry,
+            cache_dir=model_cache_dir,
         )
     except OptionalDependencyError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
+    except ArtifactError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     samples = build_policy_samples(
         train_records,
         position_vocabulary=position_vocabulary,
@@ -782,6 +930,15 @@ def train_neural(
     )
 
     try:
+        epoch_callback = _build_epoch_checkpoint_callback(
+            checkpoint_dir=checkpoint_dir,
+            adapter_manifest=manifest,
+            move_vocabulary=move_vocabulary,
+            position_vocabulary=position_vocabulary,
+            lora_applied=use_lora,
+            save_best=save_best,
+            checkpoint_every_epoch=checkpoint_every_epoch,
+        )
         model, result = train_policy_model(
             batches,
             transformer=transformer,
@@ -792,6 +949,12 @@ def train_neural(
             lora=lora if use_lora else None,
             validation_batches=validation_batches,
             initial_state_dict=initial_state_dict,
+            resume_state_dict=resume_state.model_state_dict,
+            optimizer_state_dict=resume_state.optimizer_state_dict,
+            scheduler_state_dict=resume_state.scheduler_state_dict,
+            scaler_state_dict=resume_state.scaler_state_dict,
+            start_epoch=resume_state.next_epoch,
+            epoch_callback=epoch_callback,
         )
         checkpoint = save_torch_policy_checkpoint(
             checkpoint_dir,
@@ -801,10 +964,13 @@ def train_neural(
             position_vocabulary=position_vocabulary,
             training_result=result,
             lora_applied=use_lora,
+            training_state=epoch_callback.latest_training_state,
         )
     except OptionalDependencyError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
+    except ArtifactError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
     typer.echo(f"Wrote neural checkpoint: {checkpoint_dir / checkpoint.model_state_file}")
     typer.echo(json.dumps(result.to_dict(), indent=2, sort_keys=True))
@@ -821,13 +987,33 @@ def train_neural_stream(
     move_vocab: Annotated[Path, typer.Option(help="Move vocabulary path.")],
     position_vocab: Annotated[Path, typer.Option(help="Position vocabulary path.")],
     init_checkpoint: Annotated[
+        str | None,
+        typer.Option(help="Optional local or remote full/base checkpoint to initialize from."),
+    ] = None,
+    resume_checkpoint: Annotated[
+        str | None,
+        typer.Option(help="Optional local or remote checkpoint to resume training from."),
+    ] = None,
+    model_registry: Annotated[
         Path | None,
-        typer.Option(help="Optional full/base checkpoint to initialize model weights from."),
+        typer.Option(help="Optional model registry for remote checkpoint references."),
+    ] = None,
+    model_cache_dir: Annotated[
+        Path | None,
+        typer.Option(help="Optional model cache directory for remote checkpoint references."),
     ] = None,
     validation_records: Annotated[
         Path | None,
         typer.Option(help="Optional validation training JSONL path."),
     ] = None,
+    save_best: Annotated[
+        bool,
+        typer.Option("--save-best/--no-save-best", help="Save the best epoch checkpoint."),
+    ] = True,
+    checkpoint_every_epoch: Annotated[
+        bool,
+        typer.Option(help="Save an epoch checkpoint after every epoch."),
+    ] = False,
     use_lora: Annotated[
         bool,
         typer.Option("--use-lora/--full-finetune", help="Train a PEFT LoRA adapter."),
@@ -918,6 +1104,11 @@ def train_neural_stream(
         lora_alpha=lora_alpha,
         lora_dropout=lora_dropout,
     )
+    registry = _load_model_registry(model_registry)
+    if init_checkpoint is not None and resume_checkpoint is not None:
+        raise typer.BadParameter(
+            "--init-checkpoint and --resume-checkpoint cannot be used together"
+        )
     try:
         initial_state_dict = _load_initial_policy_state(
             init_checkpoint,
@@ -925,6 +1116,18 @@ def train_neural_stream(
             move_vocabulary=move_vocabulary,
             position_vocabulary=position_vocabulary,
             device=device,
+            registry=registry,
+            cache_dir=model_cache_dir,
+        )
+        resume_state = _load_resume_policy_state(
+            resume_checkpoint,
+            transformer=adapter_manifest.transformer,
+            move_vocabulary=move_vocabulary,
+            position_vocabulary=position_vocabulary,
+            device=device,
+            use_lora=use_lora,
+            registry=registry,
+            cache_dir=model_cache_dir,
         )
     except OptionalDependencyError as exc:
         typer.echo(str(exc), err=True)
@@ -957,6 +1160,15 @@ def train_neural_stream(
         )
 
     try:
+        epoch_callback = _build_epoch_checkpoint_callback(
+            checkpoint_dir=checkpoint_dir,
+            adapter_manifest=adapter_manifest,
+            move_vocabulary=move_vocabulary,
+            position_vocabulary=position_vocabulary,
+            lora_applied=use_lora,
+            save_best=save_best,
+            checkpoint_every_epoch=checkpoint_every_epoch,
+        )
         model, result = train_policy_model_streaming(
             batch_factory,
             transformer=adapter_manifest.transformer,
@@ -966,12 +1178,18 @@ def train_neural_stream(
             device=device,
             lora=adapter_manifest.lora if use_lora else None,
             initial_state_dict=initial_state_dict,
+            resume_state_dict=resume_state.model_state_dict,
+            optimizer_state_dict=resume_state.optimizer_state_dict,
+            scheduler_state_dict=resume_state.scheduler_state_dict,
+            scaler_state_dict=resume_state.scaler_state_dict,
+            start_epoch=resume_state.next_epoch,
             validation_batch_factory=validation_batch_factory
             if validation_records is not None
             else None,
             training_batches=math.ceil(
                 adapter_manifest.training_examples / adapter_manifest.training.batch_size
             ),
+            epoch_callback=epoch_callback,
         )
         checkpoint = save_torch_policy_checkpoint(
             checkpoint_dir,
@@ -981,6 +1199,7 @@ def train_neural_stream(
             position_vocabulary=position_vocabulary,
             training_result=result,
             lora_applied=use_lora,
+            training_state=epoch_callback.latest_training_state,
         )
     except OptionalDependencyError as exc:
         typer.echo(str(exc), err=True)
@@ -1165,6 +1384,67 @@ def evaluate(
     )
     metrics = evaluate_move_matching(persona.require_model(), examples, k=k)
     typer.echo(json.dumps(metrics.to_dict(), indent=2, sort_keys=True))
+
+
+@app.command("persona-report")
+def persona_report(
+    model: Annotated[Path, typer.Argument(help="Path to a persona artifact.")],
+    pgn: Annotated[Path, typer.Argument(help="Evaluation PGN file.")],
+    player: Annotated[str, typer.Argument(help="Player name as written in PGN headers.")],
+    out: Annotated[Path | None, typer.Option(help="Optional report output path.")] = None,
+    baseline_model: Annotated[
+        Path | None,
+        typer.Option(help="Optional baseline persona artifact for comparison."),
+    ] = None,
+    color: Annotated[PlayerColor, typer.Option(help="Filter games by player color.")] = "both",
+    k: Annotated[int, typer.Option(help="Top-k match threshold.")] = 3,
+    max_games: Annotated[
+        int | None,
+        typer.Option(help="Limit the number of matched games."),
+    ] = None,
+    skip_first_plies: Annotated[
+        int,
+        typer.Option(help="Skip early plies when evaluating."),
+    ] = 0,
+    engine_path: Annotated[
+        Path | None,
+        typer.Option(help="Optional UCI engine for tactical quality metrics."),
+    ] = None,
+    engine_time_limit: Annotated[
+        float | None,
+        typer.Option(help="Engine analysis time per move, in seconds."),
+    ] = 0.05,
+    engine_depth: Annotated[
+        int | None,
+        typer.Option(help="Optional engine analysis depth per move."),
+    ] = None,
+    blunder_threshold_cp: Annotated[
+        int,
+        typer.Option(help="Centipawn loss threshold counted as a blunder."),
+    ] = 200,
+) -> None:
+    candidate = PersonaChess.load(model)
+    baseline = PersonaChess.load(baseline_model).require_model() if baseline_model else None
+    examples = build_move_examples(
+        pgn,
+        GameFilter(player=player, color=color, max_games=max_games),
+        skip_first_plies=skip_first_plies,
+    )
+    report = evaluate_persona_quality(
+        candidate.require_model(),
+        examples,
+        baseline_model=baseline,
+        k=k,
+        engine_path=engine_path,
+        engine_limit=EngineGuidanceConfig(time_limit=engine_time_limit, depth=engine_depth),
+        blunder_threshold_cp=blunder_threshold_cp,
+    )
+    payload = json.dumps(report.to_dict(), indent=2, sort_keys=True)
+    if out:
+        out.write_text(payload + "\n", encoding="utf-8")
+        typer.echo(f"Wrote persona evaluation report: {out}")
+        return
+    typer.echo(payload)
 
 
 @app.command()
@@ -1495,6 +1775,63 @@ def _split_validation_records(
     return train_records, validation_records
 
 
+def _load_model_registry(path: Path | None) -> ModelRegistry | None:
+    return ModelRegistry.load(path) if path is not None else None
+
+
+def _build_epoch_checkpoint_callback(
+    *,
+    checkpoint_dir: Path,
+    adapter_manifest: AdapterManifest,
+    move_vocabulary: MoveVocabulary,
+    position_vocabulary: PositionVocabulary,
+    lora_applied: bool,
+    save_best: bool,
+    checkpoint_every_epoch: bool,
+) -> _EpochCheckpointCallback:
+    return _EpochCheckpointCallback(
+        checkpoint_dir=checkpoint_dir,
+        adapter_manifest=adapter_manifest,
+        move_vocabulary=move_vocabulary,
+        position_vocabulary=position_vocabulary,
+        lora_applied=lora_applied,
+        save_best=save_best,
+        checkpoint_every_epoch=checkpoint_every_epoch,
+    )
+
+
+def _training_state_payload(
+    *,
+    epoch_result: TrainingEpochResult,
+    optimizer: Any,
+    scheduler: Any | None,
+    scaler: Any,
+) -> dict[str, Any]:
+    return {
+        "epoch": epoch_result.epoch,
+        "optimizer_state_dict": optimizer.state_dict(),
+        "scheduler_state_dict": scheduler.state_dict() if scheduler is not None else None,
+        "scaler_state_dict": scaler.state_dict() if scaler.is_enabled() else None,
+    }
+
+
+def _training_result_from_epoch(epoch_result: TrainingEpochResult) -> TrainingResult:
+    return TrainingResult(
+        epochs=1,
+        steps=epoch_result.steps,
+        final_loss=epoch_result.average_train_loss,
+        optimizer_steps=epoch_result.optimizer_steps,
+        average_train_loss=epoch_result.average_train_loss,
+        validation_loss=epoch_result.validation_loss,
+        validation_accuracy=epoch_result.validation_accuracy,
+        validation_top3_accuracy=epoch_result.validation_top3_accuracy,
+        validation_examples=epoch_result.validation_examples,
+        best_validation_loss=epoch_result.validation_loss,
+        best_epoch=epoch_result.epoch,
+        epochs_detail=(epoch_result,),
+    )
+
+
 def _position_vocabulary_for_records(
     records: list[TrainingRecord],
     *,
@@ -1506,18 +1843,25 @@ def _position_vocabulary_for_records(
 
 
 def _load_initial_policy_state(
-    init_checkpoint: Path | None,
+    init_checkpoint: str | None,
     *,
     transformer: TransformerPolicyConfig,
     move_vocabulary: MoveVocabulary,
     position_vocabulary: PositionVocabulary,
     device: str | None,
+    registry: ModelRegistry | None,
+    cache_dir: Path | None,
 ) -> dict[str, Any] | None:
     if init_checkpoint is None:
         return None
 
+    checkpoint_path = resolve_model_reference(
+        init_checkpoint,
+        registry=registry,
+        cache_dir=cache_dir,
+    )
     state_dict, checkpoint_manifest, adapter_manifest, checkpoint_moves, checkpoint_positions = (
-        load_torch_policy_state(init_checkpoint, device=device)
+        load_torch_policy_state(checkpoint_path, device=device)
     )
     if checkpoint_manifest.lora_applied:
         raise typer.BadParameter(
@@ -1529,8 +1873,51 @@ def _load_initial_policy_state(
         raise typer.BadParameter("init checkpoint move vocabulary does not match this run")
     if checkpoint_positions.id_to_token != position_vocabulary.id_to_token:
         raise typer.BadParameter("init checkpoint position vocabulary does not match this run")
-    typer.echo(f"Loaded initial checkpoint: {init_checkpoint}")
+    typer.echo(f"Loaded initial checkpoint: {checkpoint_path}")
     return state_dict
+
+
+def _load_resume_policy_state(
+    resume_checkpoint: str | None,
+    *,
+    transformer: TransformerPolicyConfig,
+    move_vocabulary: MoveVocabulary,
+    position_vocabulary: PositionVocabulary,
+    device: str | None,
+    use_lora: bool,
+    registry: ModelRegistry | None,
+    cache_dir: Path | None,
+) -> _ResumeState:
+    if resume_checkpoint is None:
+        return _ResumeState()
+
+    checkpoint_path = resolve_model_reference(
+        resume_checkpoint,
+        registry=registry,
+        cache_dir=cache_dir,
+    )
+    state_dict, checkpoint_manifest, adapter_manifest, checkpoint_moves, checkpoint_positions = (
+        load_torch_policy_state(checkpoint_path, device=device)
+    )
+    if checkpoint_manifest.lora_applied != use_lora:
+        raise typer.BadParameter("resume checkpoint LoRA mode does not match this run")
+    if adapter_manifest.transformer.to_dict() != transformer.to_dict():
+        raise typer.BadParameter("resume checkpoint transformer config does not match this run")
+    if checkpoint_moves.id_to_token != move_vocabulary.id_to_token:
+        raise typer.BadParameter("resume checkpoint move vocabulary does not match this run")
+    if checkpoint_positions.id_to_token != position_vocabulary.id_to_token:
+        raise typer.BadParameter("resume checkpoint position vocabulary does not match this run")
+
+    training_state = load_torch_training_state(checkpoint_path, device=device)
+    next_epoch = int(training_state.get("epoch", 0)) + 1 if training_state else 1
+    typer.echo(f"Loaded resume checkpoint: {checkpoint_path}")
+    return _ResumeState(
+        model_state_dict=state_dict,
+        optimizer_state_dict=training_state.get("optimizer_state_dict"),
+        scheduler_state_dict=training_state.get("scheduler_state_dict"),
+        scaler_state_dict=training_state.get("scaler_state_dict"),
+        next_epoch=max(1, next_epoch),
+    )
 
 
 def _record_split_key(record: TrainingRecord) -> str:

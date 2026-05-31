@@ -56,6 +56,8 @@ persona-chess train-neural games.pgn "Target Player" --checkpoint-dir checkpoint
 persona-chess train-neural-stream target-player.train.jsonl --manifest adapter.manifest.json --move-vocab moves.vocab.json --position-vocab positions.vocab.json --checkpoint-dir checkpoints/player --init-checkpoint checkpoints/base
 persona-chess neural-move checkpoints/player --fen "startpos"
 persona-chess engine-move target-player.persona.json --engine-path /path/to/stockfish --fen "startpos"
+persona-chess persona-report target-player.persona.json games.pgn "Target Player" --baseline-model baseline.persona.json --out persona-report.json
+persona-chess download-model persona-chess/base-small --registry models.json
 ```
 
 Built-in model backends:
@@ -136,6 +138,30 @@ accuracy, legal top-3 accuracy, optimizer steps, active mixed precision mode, an
 trainable parameter counts. Training uses AdamW, learning-rate warmup plus cosine
 decay, gradient accumulation, gradient clipping, and CUDA mixed precision when
 available.
+
+Long neural runs can save resumable checkpoints:
+
+```bash
+persona-chess train-neural-stream target-player.fit.jsonl --manifest adapter.manifest.json --move-vocab moves.vocab.json --position-vocab positions.vocab.json --checkpoint-dir checkpoints/player --validation-records target-player.valid.jsonl --save-best --checkpoint-every-epoch
+persona-chess train-neural-stream target-player.fit.jsonl --manifest adapter.manifest.json --move-vocab moves.vocab.json --position-vocab positions.vocab.json --checkpoint-dir checkpoints/player-resumed --resume-checkpoint checkpoints/player/best
+```
+
+Remote base checkpoints can be distributed as zip archives through a registry JSON.
+Each archive must contain a `checkpoint.json` at or below its root.
+
+```json
+{
+  "schema_version": "persona-chess/model-registry/v1",
+  "models": [
+    {
+      "name": "persona-chess/base-small",
+      "version": "0.1.0",
+      "url": "https://example.com/persona-chess-base-small.zip",
+      "sha256": "..."
+    }
+  ]
+}
+```
 
 ## Project Direction
 

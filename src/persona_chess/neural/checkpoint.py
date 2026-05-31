@@ -20,6 +20,7 @@ ADAPTER_MANIFEST_FILE = "adapter.manifest.json"
 MOVE_VOCABULARY_FILE = "moves.vocab.json"
 POSITION_VOCABULARY_FILE = "positions.vocab.json"
 MODEL_STATE_FILE = "model.pt"
+TRAINING_STATE_FILE = "training_state.pt"
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +35,7 @@ class NeuralCheckpointManifest:
     position_vocabulary_file: str
     training_result: TrainingResult | None
     lora_applied: bool
+    training_state_file: str | None = None
 
     @classmethod
     def create(
@@ -46,6 +48,7 @@ class NeuralCheckpointManifest:
         move_vocabulary_file: str = MOVE_VOCABULARY_FILE,
         position_vocabulary_file: str = POSITION_VOCABULARY_FILE,
         lora_applied: bool = False,
+        training_state_file: str | None = None,
     ) -> "NeuralCheckpointManifest":
         return cls(
             schema_version=NEURAL_CHECKPOINT_SCHEMA,
@@ -58,6 +61,7 @@ class NeuralCheckpointManifest:
             position_vocabulary_file=position_vocabulary_file,
             training_result=training_result,
             lora_applied=lora_applied,
+            training_state_file=training_state_file,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -89,6 +93,7 @@ class NeuralCheckpointManifest:
             position_vocabulary_file=data["position_vocabulary_file"],
             training_result=training_result,
             lora_applied=bool(data.get("lora_applied", False)),
+            training_state_file=data.get("training_state_file"),
         )
 
     def save(self, path: str | Path) -> None:
@@ -120,6 +125,7 @@ def save_torch_policy_checkpoint(
     position_vocabulary: PositionVocabulary,
     training_result: TrainingResult | None = None,
     lora_applied: bool = False,
+    training_state: dict[str, Any] | None = None,
 ) -> NeuralCheckpointManifest:
     torch = require_torch()
     checkpoint_dir = Path(directory)
@@ -137,12 +143,15 @@ def save_torch_policy_checkpoint(
         player=adapter_manifest.player,
         training_result=training_result,
         lora_applied=lora_applied,
+        training_state_file=TRAINING_STATE_FILE if training_state is not None else None,
     )
 
     adapter_manifest.save(checkpoint_dir / checkpoint_manifest.adapter_manifest_file)
     move_vocabulary.save(checkpoint_dir / checkpoint_manifest.move_vocabulary_file)
     position_vocabulary.save(checkpoint_dir / checkpoint_manifest.position_vocabulary_file)
     torch.save({"model_state_dict": model.state_dict()}, checkpoint_dir / MODEL_STATE_FILE)
+    if training_state is not None:
+        torch.save(training_state, checkpoint_dir / TRAINING_STATE_FILE)
     checkpoint_manifest.save(checkpoint_dir / CHECKPOINT_MANIFEST_FILE)
     return checkpoint_manifest
 
@@ -211,3 +220,20 @@ def load_torch_policy_state(
         move_vocabulary,
         position_vocabulary,
     )
+
+
+def load_torch_training_state(
+    directory: str | Path, *, device: str | None = None
+) -> dict[str, Any]:
+    torch = require_torch()
+    checkpoint_dir = Path(directory)
+    checkpoint_manifest = NeuralCheckpointManifest.load(checkpoint_dir / CHECKPOINT_MANIFEST_FILE)
+    if checkpoint_manifest.training_state_file is None:
+        return {}
+    state = torch.load(
+        checkpoint_dir / checkpoint_manifest.training_state_file,
+        map_location=torch.device(device) if device else None,
+    )
+    if not isinstance(state, dict):
+        raise ArtifactError("Training state payload must be a dictionary.")
+    return state

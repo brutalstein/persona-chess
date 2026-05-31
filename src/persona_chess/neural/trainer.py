@@ -32,6 +32,21 @@ class PolicyEvaluationResult:
 
 
 @dataclass(frozen=True, slots=True)
+class TrainingEpochResult:
+    epoch: int
+    steps: int
+    optimizer_steps: int
+    average_train_loss: float
+    validation_loss: float | None = None
+    validation_accuracy: float | None = None
+    validation_top3_accuracy: float | None = None
+    validation_examples: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
 class TrainingResult:
     epochs: int
     steps: int
@@ -47,6 +62,7 @@ class TrainingResult:
     mixed_precision: str = "off"
     trainable_parameters: int = 0
     total_parameters: int = 0
+    epochs_detail: tuple[TrainingEpochResult, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -65,6 +81,9 @@ class TrainingResult:
         payload.setdefault("mixed_precision", "off")
         payload.setdefault("trainable_parameters", 0)
         payload.setdefault("total_parameters", 0)
+        payload["epochs_detail"] = tuple(
+            TrainingEpochResult(**epoch) for epoch in payload.get("epochs_detail", ())
+        )
         return cls(**payload)
 
 
@@ -79,6 +98,12 @@ def train_policy_model(
     lora: LoraConfig | None = None,
     validation_batches: list[PolicyBatch] | None = None,
     initial_state_dict: dict[str, Any] | None = None,
+    resume_state_dict: dict[str, Any] | None = None,
+    optimizer_state_dict: dict[str, Any] | None = None,
+    scheduler_state_dict: dict[str, Any] | None = None,
+    scaler_state_dict: dict[str, Any] | None = None,
+    start_epoch: int = 1,
+    epoch_callback: Any | None = None,
 ) -> tuple[Any, TrainingResult]:
     return train_policy_model_streaming(
         lambda: iter(batches),
@@ -89,6 +114,12 @@ def train_policy_model(
         device=device,
         lora=lora,
         initial_state_dict=initial_state_dict,
+        resume_state_dict=resume_state_dict,
+        optimizer_state_dict=optimizer_state_dict,
+        scheduler_state_dict=scheduler_state_dict,
+        scaler_state_dict=scaler_state_dict,
+        start_epoch=start_epoch,
+        epoch_callback=epoch_callback,
         validation_batch_factory=(lambda: iter(validation_batches))
         if validation_batches is not None
         else None,
@@ -106,8 +137,14 @@ def train_policy_model_streaming(
     device: str | None = None,
     lora: LoraConfig | None = None,
     initial_state_dict: dict[str, Any] | None = None,
+    resume_state_dict: dict[str, Any] | None = None,
+    optimizer_state_dict: dict[str, Any] | None = None,
+    scheduler_state_dict: dict[str, Any] | None = None,
+    scaler_state_dict: dict[str, Any] | None = None,
+    start_epoch: int = 1,
     validation_batch_factory: Callable[[], Iterable[PolicyBatch]] | None = None,
     training_batches: int | None = None,
+    epoch_callback: Any | None = None,
 ) -> tuple[Any, TrainingResult]:
     torch = require_torch()
     torch.manual_seed(training.seed)
@@ -126,12 +163,16 @@ def train_policy_model_streaming(
     if lora is not None:
         model, parameter_summary = apply_lora_adapter(model, lora)
         model = model.to(active_device)
+    if resume_state_dict is not None:
+        model.load_state_dict(resume_state_dict)
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=training.learning_rate,
         weight_decay=training.weight_decay,
     )
+    if optimizer_state_dict is not None:
+        optimizer.load_state_dict(optimizer_state_dict)
     scheduler = _build_scheduler(
         torch,
         optimizer,
@@ -141,9 +182,13 @@ def train_policy_model_streaming(
             training_batches=training_batches,
         ),
     )
+    if scheduler is not None and scheduler_state_dict is not None:
+        scheduler.load_state_dict(scheduler_state_dict)
     loss_fn = torch.nn.CrossEntropyLoss()
     precision_plan = _resolve_precision_plan(torch, training.mixed_precision, active_device)
     scaler = torch.amp.GradScaler("cuda", enabled=precision_plan.use_scaler)
+    if scaler_state_dict is not None and scaler.is_enabled():
+        scaler.load_state_dict(scaler_state_dict)
     final_loss = 0.0
     steps = 0
     optimizer_steps = 0
@@ -151,10 +196,12 @@ def train_policy_model_streaming(
     validation_result: PolicyEvaluationResult | None = None
     best_validation_loss: float | None = None
     best_epoch: int | None = None
+    epoch_results: list[TrainingEpochResult] = []
 
     model.train()
     optimizer.zero_grad(set_to_none=True)
-    for epoch in range(1, training.epochs + 1):
+    final_epoch = start_epoch + training.epochs - 1
+    for epoch in range(start_epoch, final_epoch + 1):
         accumulated = 0
         epoch_loss_sum = 0.0
         epoch_examples = 0
@@ -217,6 +264,29 @@ def train_policy_model_streaming(
                 best_validation_loss = validation_result.loss
                 best_epoch = epoch
             model.train()
+        epoch_result = TrainingEpochResult(
+            epoch=epoch,
+            steps=steps,
+            optimizer_steps=optimizer_steps,
+            average_train_loss=average_train_loss,
+            validation_loss=validation_result.loss if validation_result is not None else None,
+            validation_accuracy=(
+                validation_result.accuracy if validation_result is not None else None
+            ),
+            validation_top3_accuracy=(
+                validation_result.top3_accuracy if validation_result is not None else None
+            ),
+            validation_examples=validation_result.examples if validation_result is not None else 0,
+        )
+        epoch_results.append(epoch_result)
+        if epoch_callback is not None:
+            epoch_callback(
+                model=model,
+                epoch_result=epoch_result,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                scaler=scaler,
+            )
 
     return model, TrainingResult(
         epochs=training.epochs,
@@ -235,6 +305,7 @@ def train_policy_model_streaming(
         mixed_precision=precision_plan.label,
         trainable_parameters=parameter_summary.trainable_parameters,
         total_parameters=parameter_summary.total_parameters,
+        epochs_detail=tuple(epoch_results),
     )
 
 

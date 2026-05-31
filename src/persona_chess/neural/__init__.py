@@ -10,6 +10,7 @@ from persona_chess.neural.checkpoint import (
     NeuralCheckpointManifest,
     load_torch_policy_checkpoint,
     load_torch_policy_state,
+    load_torch_training_state,
     save_torch_policy_checkpoint,
 )
 from persona_chess.neural.config import (
@@ -31,6 +32,15 @@ from persona_chess.neural.lora import (
     summarize_trainable_parameters,
 )
 from persona_chess.neural.manifest import ADAPTER_MANIFEST_SCHEMA, AdapterManifest
+from persona_chess.neural.model_hub import (
+    MODEL_REGISTRY_SCHEMA,
+    ModelDownloadResult,
+    ModelRegistry,
+    RemoteModel,
+    default_model_cache_dir,
+    download_remote_model,
+    resolve_model_reference,
+)
 from persona_chess.neural.planning import (
     create_adapter_manifest,
     create_adapter_manifest_from_vocabulary_sizes,
@@ -58,6 +68,7 @@ from persona_chess.neural.torch_backend import (
 )
 from persona_chess.neural.trainer import (
     PolicyEvaluationResult,
+    TrainingEpochResult,
     TrainingResult,
     evaluate_policy_model,
     train_policy_model,
@@ -69,6 +80,7 @@ from persona_chess.neural.vocabulary import MOVE_VOCABULARY_SCHEMA, MoveVocabula
 __all__ = [
     "ADAPTER_MANIFEST_SCHEMA",
     "MOVE_VOCABULARY_SCHEMA",
+    "MODEL_REGISTRY_SCHEMA",
     "NEURAL_CHECKPOINT_SCHEMA",
     "POSITION_VOCABULARY_SCHEMA",
     "AdapterManifest",
@@ -76,6 +88,8 @@ __all__ = [
     "LoraAdapterSummary",
     "HardwareProfile",
     "MoveVocabulary",
+    "ModelDownloadResult",
+    "ModelRegistry",
     "MixedPrecisionMode",
     "NeuralAutoConfig",
     "NeuralArtifactValidation",
@@ -88,8 +102,10 @@ __all__ = [
     "PolicySample",
     "PositionTokenizer",
     "PositionVocabulary",
+    "RemoteModel",
     "StreamingNeuralArtifacts",
     "TrainingResult",
+    "TrainingEpochResult",
     "TransformerPolicyConfig",
     "apply_lora_adapter",
     "build_policy_sample",
@@ -98,7 +114,9 @@ __all__ = [
     "collate_policy_samples",
     "create_adapter_manifest",
     "create_adapter_manifest_from_vocabulary_sizes",
+    "default_model_cache_dir",
     "detect_hardware_profile",
+    "download_remote_model",
     "evaluate_policy_model",
     "gather_legal_logits",
     "iter_policy_batches",
@@ -108,11 +126,13 @@ __all__ = [
     "legal_move_id_entries",
     "load_torch_policy_checkpoint",
     "load_torch_policy_state",
+    "load_torch_training_state",
     "policy_batch_to_tensors",
     "prepare_streaming_neural_artifacts",
     "predict_policy_moves",
     "predict_policy_moves_from_checkpoint",
     "recommend_neural_config",
+    "resolve_model_reference",
     "save_torch_policy_checkpoint",
     "summarize_trainable_parameters",
     "train_policy_model",

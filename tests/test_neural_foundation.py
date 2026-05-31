@@ -26,6 +26,7 @@ from persona_chess.neural import (
     iter_policy_batches,
     legal_move_id_entries,
     load_torch_policy_state,
+    load_torch_training_state,
     predict_policy_moves_from_checkpoint,
     prepare_streaming_neural_artifacts,
     save_torch_policy_checkpoint,
@@ -271,6 +272,7 @@ def test_torch_training_can_initialize_from_base_checkpoint(tmp_path: Path) -> N
         position_vocabulary=position_vocabulary,
         training_result=base_result,
         lora_applied=False,
+        training_state={"epoch": 1, "optimizer_state_dict": {"ok": True}},
     )
     state_dict, checkpoint_manifest, _, checkpoint_moves, checkpoint_positions = (
         load_torch_policy_state(tmp_path, device="cpu")
@@ -288,6 +290,7 @@ def test_torch_training_can_initialize_from_base_checkpoint(tmp_path: Path) -> N
     assert not checkpoint_manifest.lora_applied
     assert checkpoint_moves == move_vocabulary
     assert checkpoint_positions == position_vocabulary
+    assert load_torch_training_state(tmp_path, device="cpu")["epoch"] == 1
     assert initialized_result.optimizer_steps > 0
 
 
