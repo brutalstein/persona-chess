@@ -23,6 +23,7 @@ from persona_chess.neural import (
     build_policy_samples,
     collate_policy_samples,
     create_adapter_manifest,
+    predict_policy_moves_from_checkpoint,
     save_torch_policy_checkpoint,
     train_policy_model,
     validate_neural_artifacts,
@@ -255,6 +256,33 @@ def train_neural(
 
     typer.echo(f"Wrote neural checkpoint: {checkpoint_dir / checkpoint.model_state_file}")
     typer.echo(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+
+
+@app.command("neural-move")
+def neural_move(
+    checkpoint_dir: Annotated[Path, typer.Argument(help="Neural checkpoint directory.")],
+    fen: Annotated[str, typer.Option(help="FEN string or 'startpos'.")],
+    top_k: Annotated[int, typer.Option(help="Number of moves to return.")] = 3,
+    device: Annotated[str | None, typer.Option(help="Torch device, such as cpu or cuda.")] = None,
+) -> None:
+    try:
+        predictions = predict_policy_moves_from_checkpoint(
+            checkpoint_dir,
+            fen=fen,
+            top_k=top_k,
+            device=device,
+        )
+    except OptionalDependencyError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(
+        json.dumps(
+            [prediction.to_dict() for prediction in predictions],
+            indent=2,
+            sort_keys=True,
+        )
+    )
 
 
 @app.command()

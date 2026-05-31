@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
-  { name = "Persona Chess Contributors" }
+  { name = "Persona Chess Contributors" },
 ]
 keywords = ["chess", "pgn", "machine-learning", "imitation-learning", "persona"]
 classifiers = [
@@ -38,6 +38,7 @@ dev = [
   "pre-commit>=3.7.0",
   "pytest>=8.0.0",
   "ruff>=0.6.0",
+  "twine>=5.0.0",
 ]
 ml = [
   "peft>=0.13.0",
@@ -46,9 +47,10 @@ ml = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/persona-chess/persona-chess"
-Repository = "https://github.com/persona-chess/persona-chess"
-Issues = "https://github.com/persona-chess/persona-chess/issues"
+Homepage = "https://github.com/brutalstein/persona-chess"
+Repository = "https://github.com/brutalstein/persona-chess"
+Issues = "https://github.com/brutalstein/persona-chess/issues"
+Changelog = "https://github.com/brutalstein/persona-chess/blob/main/CHANGELOG.md"
 
 [project.scripts]
 persona-chess = "persona_chess.cli:app"

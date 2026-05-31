@@ -15,6 +15,8 @@ Run the quality suite:
 .\.venv\Scripts\python -m ruff format --check .
 .\.venv\Scripts\python -m mypy src
 .\.venv\Scripts\python -m pytest
+.\.venv\Scripts\python -m build
+.\.venv\Scripts\python -m twine check dist/*
 ```
 
 Run a local smoke test:
@@ -36,6 +38,7 @@ Run a neural training smoke test after installing ML dependencies:
 
 ```bash
 .\.venv\Scripts\persona-chess train-neural tests\fixtures\sample.pgn "Target Player" --checkpoint-dir checkpoints\target-player --epochs 1 --batch-size 4 --use-lora
+.\.venv\Scripts\persona-chess neural-move checkpoints\target-player --fen startpos
 ```
 
 Install pre-commit hooks:

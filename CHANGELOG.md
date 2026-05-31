@@ -9,5 +9,5 @@ All notable changes to this project will be documented in this file.
 - Added versioned persona, benchmark, neural manifest, vocabulary, and checkpoint artifacts.
 - Added deterministic game-level train/test splits and benchmark reports.
 - Added neural preparation pipeline with position tokenization, move vocabularies, policy batches, legal-masked training targets, optional PyTorch policy skeleton, and PEFT LoRA integration.
-- Added CLI commands for profiling, dataset export, training, evaluation, benchmarking, neural preparation, neural validation, and optional neural training.
-
+- Added neural checkpoint inference with legal move masking.
+- Added CLI commands for profiling, dataset export, training, evaluation, benchmarking, neural preparation, neural validation, optional neural training, and neural checkpoint move prediction.

@@ -6,10 +6,10 @@ behavior or make the project easier to use and maintain.
 ## Near Term
 
 1. Add more representative PGN fixtures and benchmark cases.
-2. Add neural training smoke tests under the optional `ml` extra.
-3. Add checkpoint inference for neural policy models.
-4. Add model cards for persona artifacts and benchmark reports.
-5. Add UCI engine mode for playing personas in chess GUIs.
+2. Add neural benchmark reports for checkpoint inference.
+3. Add model cards for persona artifacts and benchmark reports.
+4. Add UCI engine mode for playing personas in chess GUIs.
+5. Prepare the first pre-alpha PyPI release.
 
 ## Neural Path
 
@@ -24,4 +24,3 @@ behavior or make the project easier to use and maintain.
 2. Add richer profile and style reports.
 3. Add examples and notebooks.
 4. Prepare a first PyPI release once the API stabilizes.
-

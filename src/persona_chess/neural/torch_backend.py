@@ -1,3 +1,4 @@
+from importlib import import_module
 from typing import Any
 
 from persona_chess.exceptions import OptionalDependencyError
@@ -7,7 +8,7 @@ from persona_chess.neural.samples import PolicyBatch
 
 def is_torch_available() -> bool:
     try:
-        __import__("torch")
+        import_module("torch")
     except ModuleNotFoundError:
         return False
     return True
@@ -15,12 +16,11 @@ def is_torch_available() -> bool:
 
 def require_torch() -> Any:
     try:
-        import torch  # type: ignore[import-not-found]
+        return import_module("torch")
     except ModuleNotFoundError as exc:
         raise OptionalDependencyError(
             "PyTorch is required for neural training. Install persona-chess with the ml extra."
         ) from exc
-    return torch
 
 
 def build_transformer_policy_model(

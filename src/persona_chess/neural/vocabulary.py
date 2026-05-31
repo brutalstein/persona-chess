@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import chess
+
 from persona_chess.exceptions import ArtifactError
 from persona_chess.training.records import TrainingRecord
 
@@ -18,10 +20,22 @@ class MoveVocabulary:
 
     @classmethod
     def from_records(cls, records: list[TrainingRecord]) -> "MoveVocabulary":
-        moves = sorted({move for record in records for move in record.legal_moves})
+        moves = sorted(
+            {
+                *_standard_uci_moves(),
+                *(move for record in records for move in record.legal_moves),
+            }
+        )
         return cls(
             schema_version=MOVE_VOCABULARY_SCHEMA,
             id_to_token=(MOVE_PAD_TOKEN, MOVE_UNK_TOKEN, *moves),
+        )
+
+    @classmethod
+    def standard(cls) -> "MoveVocabulary":
+        return cls(
+            schema_version=MOVE_VOCABULARY_SCHEMA,
+            id_to_token=(MOVE_PAD_TOKEN, MOVE_UNK_TOKEN, *_standard_uci_moves()),
         )
 
     @property
@@ -80,3 +94,47 @@ class MoveVocabulary:
         except (OSError, json.JSONDecodeError) as exc:
             raise ArtifactError(f"Unable to load move vocabulary: {input_path}") from exc
         return cls.from_dict(data)
+
+
+def _standard_uci_moves() -> tuple[str, ...]:
+    moves = {
+        chess.square_name(from_square) + chess.square_name(to_square)
+        for from_square in chess.SQUARES
+        for to_square in chess.SQUARES
+        if from_square != to_square
+    }
+    moves.update(_promotion_moves())
+    return tuple(sorted(moves))
+
+
+def _promotion_moves() -> set[str]:
+    moves: set[str] = set()
+    promotion_pieces = ("q", "r", "b", "n")
+
+    for from_square in chess.SquareSet(chess.BB_RANK_7):
+        moves.update(_promotion_moves_from_square(from_square, 7, promotion_pieces))
+
+    for from_square in chess.SquareSet(chess.BB_RANK_2):
+        moves.update(_promotion_moves_from_square(from_square, 0, promotion_pieces))
+
+    return moves
+
+
+def _promotion_moves_from_square(
+    from_square: chess.Square,
+    target_rank: int,
+    promotion_pieces: tuple[str, ...],
+) -> set[str]:
+    moves: set[str] = set()
+    from_file = chess.square_file(from_square)
+
+    for file_delta in (-1, 0, 1):
+        target_file = from_file + file_delta
+        if not 0 <= target_file <= 7:
+            continue
+        base = chess.square_name(from_square) + chess.square_name(
+            chess.square(target_file, target_rank)
+        )
+        moves.update(base + promotion_piece for promotion_piece in promotion_pieces)
+
+    return moves

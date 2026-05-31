@@ -1,4 +1,5 @@
 from dataclasses import asdict, dataclass
+from importlib import import_module
 from typing import Any
 
 from persona_chess.exceptions import OptionalDependencyError
@@ -20,7 +21,7 @@ class LoraAdapterSummary:
 
 def is_peft_available() -> bool:
     try:
-        __import__("peft")
+        import_module("peft")
     except ModuleNotFoundError:
         return False
     return True
@@ -28,12 +29,11 @@ def is_peft_available() -> bool:
 
 def require_peft() -> Any:
     try:
-        import peft  # type: ignore[import-not-found]
+        return import_module("peft")
     except ModuleNotFoundError as exc:
         raise OptionalDependencyError(
             "PEFT is required for LoRA training. Install persona-chess with the ml extra."
         ) from exc
-    return peft
 
 
 def apply_lora_adapter(model: Any, config: LoraConfig) -> tuple[Any, LoraAdapterSummary]:
@@ -47,7 +47,7 @@ def apply_lora_adapter(model: Any, config: LoraConfig) -> tuple[Any, LoraAdapter
         target_modules=list(config.target_modules),
         bias="none",
     )
-    adapted_model = peft.get_peft_model(model, peft_config)
+    adapted_model = _attach_lora_adapter(peft, model, peft_config)
     summary = summarize_trainable_parameters(
         adapted_model,
         target_modules=config.target_modules,
@@ -85,3 +85,10 @@ def _ensure_target_modules_exist(model: Any, target_modules: tuple[str, ...]) ->
     ]
     if missing:
         raise ValueError(f"LoRA target modules not found: {', '.join(missing)}")
+
+
+def _attach_lora_adapter(peft: Any, model: Any, peft_config: Any) -> Any:
+    injector = getattr(peft, "inject_adapter_in_model", None)
+    if callable(injector):
+        return injector(peft_config, model)
+    return peft.get_peft_model(model, peft_config)

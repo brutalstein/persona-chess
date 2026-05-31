@@ -12,8 +12,18 @@ surface.
 
 ## Install
 
+After the first PyPI release:
+
 ```bash
 pip install persona-chess
+pip install "persona-chess[ml]"
+```
+
+Until then, install directly from GitHub:
+
+```bash
+pip install git+https://github.com/brutalstein/persona-chess.git
+pip install "persona-chess[ml] @ git+https://github.com/brutalstein/persona-chess.git"
 ```
 
 For local development:
@@ -46,6 +56,7 @@ persona-chess benchmark games.pgn "Target Player" --model-type blend --out bench
 persona-chess prepare-neural games.pgn "Target Player" --manifest-out adapter.manifest.json --move-vocab-out moves.vocab.json --position-vocab-out positions.vocab.json
 persona-chess validate-neural adapter.manifest.json moves.vocab.json positions.vocab.json
 persona-chess train-neural games.pgn "Target Player" --checkpoint-dir checkpoints/player --use-lora
+persona-chess neural-move checkpoints/player --fen "startpos"
 ```
 
 Built-in model backends:
@@ -71,8 +82,8 @@ The planned model path is:
 The neural command currently prepares versioned adapter manifests, move
 vocabularies, and position vocabularies. The package also includes an optional
 PyTorch Transformer policy skeleton behind the `ml` extra, with PEFT-powered LoRA,
-legal-masked policy batches, and checkpoint helpers. It is not enabled for standard
-installs.
+legal-masked policy batches, checkpoint helpers, and checkpoint inference. It is not
+enabled for standard installs.
 
 ## License
 

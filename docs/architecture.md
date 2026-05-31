@@ -58,7 +58,8 @@ The project uses versioned JSON artifacts for portability:
 : Reproducible train/validation/test metrics for a model and PGN split.
 
 `move-vocabulary`
-: Global move ids for future neural policy heads.
+: Standard UCI move ids for neural policy heads. Illegal outputs are filtered by
+legal move masks at inference time.
 
 `position-vocabulary`
 : Token ids for chess-native position sequences.
@@ -96,6 +97,9 @@ can train either LoRA adapters or the full policy skeleton.
 
 `checkpoint`
 : Saves and loads optional PyTorch policy checkpoints with adapter and vocabulary artifacts.
+
+`inference`
+: Loads neural checkpoints and returns legal-masked move predictions from FEN strings.
 
 `validation`
 : Checks neural artifact consistency before training or checkpointing.

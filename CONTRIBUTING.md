@@ -27,6 +27,7 @@ Before opening a pull request, run:
 .\.venv\Scripts\python -m mypy src
 .\.venv\Scripts\python -m pytest
 .\.venv\Scripts\python -m build
+.\.venv\Scripts\python -m twine check dist/*
 ```
 
 ## Design Principles
@@ -36,4 +37,3 @@ Before opening a pull request, run:
 - Keep core installs lightweight; ML dependencies belong behind extras.
 - Add benchmarks before claiming model improvements.
 - Keep comments rare and useful.
-

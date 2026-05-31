@@ -9,6 +9,12 @@ from persona_chess.neural.config import (
     NeuralTrainingConfig,
     TransformerPolicyConfig,
 )
+from persona_chess.neural.inference import (
+    NeuralPredictionTrace,
+    legal_move_id_entries,
+    predict_policy_moves,
+    predict_policy_moves_from_checkpoint,
+)
 from persona_chess.neural.lora import (
     LoraAdapterSummary,
     apply_lora_adapter,
@@ -47,6 +53,7 @@ __all__ = [
     "MoveVocabulary",
     "NeuralArtifactValidation",
     "NeuralCheckpointManifest",
+    "NeuralPredictionTrace",
     "NeuralTrainingConfig",
     "PolicyBatch",
     "PolicySample",
@@ -63,8 +70,11 @@ __all__ = [
     "gather_legal_logits",
     "is_peft_available",
     "is_torch_available",
+    "legal_move_id_entries",
     "load_torch_policy_checkpoint",
     "policy_batch_to_tensors",
+    "predict_policy_moves",
+    "predict_policy_moves_from_checkpoint",
     "save_torch_policy_checkpoint",
     "summarize_trainable_parameters",
     "train_policy_model",
