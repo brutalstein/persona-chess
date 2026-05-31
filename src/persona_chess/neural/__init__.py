@@ -55,6 +55,14 @@ from persona_chess.neural.samples import (
     iter_policy_batches,
     iter_policy_samples,
 )
+from persona_chess.neural.session import (
+    NeuralRecordsTrainRequest,
+    NeuralTrainRequest,
+    NeuralTrainResult,
+    train_neural_persona,
+    train_neural_records,
+    write_pgn_training_records,
+)
 from persona_chess.neural.streaming import (
     StreamingNeuralArtifacts,
     prepare_streaming_neural_artifacts,
@@ -95,7 +103,10 @@ __all__ = [
     "NeuralArtifactValidation",
     "NeuralCheckpointManifest",
     "NeuralConfigProfile",
+    "NeuralRecordsTrainRequest",
     "NeuralPredictionTrace",
+    "NeuralTrainRequest",
+    "NeuralTrainResult",
     "NeuralTrainingConfig",
     "PolicyBatch",
     "PolicyEvaluationResult",
@@ -135,7 +146,10 @@ __all__ = [
     "resolve_model_reference",
     "save_torch_policy_checkpoint",
     "summarize_trainable_parameters",
+    "train_neural_persona",
+    "train_neural_records",
     "train_policy_model",
     "train_policy_model_streaming",
     "validate_neural_artifacts",
+    "write_pgn_training_records",
 ]

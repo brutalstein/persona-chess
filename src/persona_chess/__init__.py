@@ -19,7 +19,10 @@ from persona_chess.neural import (
     MoveVocabulary,
     NeuralAutoConfig,
     NeuralConfigProfile,
+    NeuralRecordsTrainRequest,
     NeuralTrainingConfig,
+    NeuralTrainRequest,
+    NeuralTrainResult,
     PolicyBatch,
     PolicyEvaluationResult,
     PolicySample,
@@ -35,6 +38,9 @@ from persona_chess.neural import (
     load_torch_training_state,
     recommend_neural_config,
     resolve_model_reference,
+    train_neural_persona,
+    train_neural_records,
+    write_pgn_training_records,
 )
 from persona_chess.pgn.filters import GameFilter
 from persona_chess.profile.types import PersonaProfile
@@ -56,6 +62,9 @@ __all__ = [
     "MixedPrecisionMode",
     "NeuralAutoConfig",
     "NeuralConfigProfile",
+    "NeuralRecordsTrainRequest",
+    "NeuralTrainRequest",
+    "NeuralTrainResult",
     "NeuralTrainingConfig",
     "PolicyBatch",
     "PolicyEvaluationResult",
@@ -82,4 +91,7 @@ __all__ = [
     "load_torch_training_state",
     "recommend_neural_config",
     "resolve_model_reference",
+    "train_neural_persona",
+    "train_neural_records",
+    "write_pgn_training_records",
 ]

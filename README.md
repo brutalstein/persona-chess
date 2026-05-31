@@ -29,9 +29,7 @@ pip install -e ".[dev]"
 
 `fit_pgn` trains a lightweight baseline persona immediately. It reads the PGN,
 filters games for the requested player, builds move examples, fits the selected
-built-in model, and returns a ready-to-save `PersonaChess` object. It does not run
-the neural Transformer/LoRA training loop; neural training uses the explicit CLI
-pipeline shown later because it can be long-running and hardware-dependent.
+built-in model, and returns a ready-to-save `PersonaChess` object.
 
 ```python
 from persona_chess import PersonaChess
@@ -41,6 +39,64 @@ persona.save("target-player.persona.json")
 
 prediction = persona.predict("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
 print(prediction[0].san)
+```
+
+`train` runs the neural Transformer/LoRA path from Python code and writes a
+checkpoint directory. Hardware-aware defaults are selected automatically; users
+can override epochs, batch size, learning rate, model size, LoRA rank, and device
+when they need control.
+
+```python
+from persona_chess import PersonaChess
+
+persona = PersonaChess()
+result = persona.train(
+    "games.pgn",
+    player="Target Player",
+    checkpoint_dir="checkpoints/target-player",
+    use_lora=True,
+    device="cuda",
+    epochs=3,
+    batch_size=32,
+)
+
+print(result.training_result.validation_accuracy)
+move = persona.predict_neural("startpos", top_k=1)[0]
+print(move.move_uci, move.san)
+```
+
+For large PGNs, keep the Python API but switch on streaming. This writes
+training records to disk and trains from those records batch by batch instead of
+keeping the whole dataset in memory:
+
+```python
+persona = PersonaChess()
+result = persona.train(
+    "large-games.pgn.zst",
+    player="Target Player",
+    checkpoint_dir="checkpoints/target-player",
+    streaming=True,
+    records_dir="runs/target-player-records",
+    validation_ratio=0.1,
+)
+```
+
+You can also manage the record files explicitly from code:
+
+```python
+persona = PersonaChess()
+persona.export_training_records(
+    "large-games.pgn",
+    "target-player.records.jsonl",
+    player="Target Player",
+)
+persona.train_records(
+    "target-player.records.jsonl",
+    player="Target Player",
+    checkpoint_dir="checkpoints/target-player",
+    init_checkpoint="checkpoints/base",
+    use_lora=True,
+)
 ```
 
 Load a saved persona and use it as an opponent policy:
