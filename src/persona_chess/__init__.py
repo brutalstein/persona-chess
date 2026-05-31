@@ -25,6 +25,7 @@ from persona_chess.neural import (
     TransformerPolicyConfig,
     detect_hardware_profile,
     evaluate_policy_model,
+    load_torch_policy_state,
     recommend_neural_config,
 )
 from persona_chess.pgn.filters import GameFilter
@@ -63,5 +64,6 @@ __all__ = [
     "detect_hardware_profile",
     "evaluate_policy_model",
     "iter_training_records",
+    "load_torch_policy_state",
     "recommend_neural_config",
 ]

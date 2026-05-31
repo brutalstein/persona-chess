@@ -78,6 +78,7 @@ def train_policy_model(
     device: str | None = None,
     lora: LoraConfig | None = None,
     validation_batches: list[PolicyBatch] | None = None,
+    initial_state_dict: dict[str, Any] | None = None,
 ) -> tuple[Any, TrainingResult]:
     return train_policy_model_streaming(
         lambda: iter(batches),
@@ -87,6 +88,7 @@ def train_policy_model(
         move_vocabulary_size=move_vocabulary_size,
         device=device,
         lora=lora,
+        initial_state_dict=initial_state_dict,
         validation_batch_factory=(lambda: iter(validation_batches))
         if validation_batches is not None
         else None,
@@ -103,6 +105,7 @@ def train_policy_model_streaming(
     move_vocabulary_size: int,
     device: str | None = None,
     lora: LoraConfig | None = None,
+    initial_state_dict: dict[str, Any] | None = None,
     validation_batch_factory: Callable[[], Iterable[PolicyBatch]] | None = None,
     training_batches: int | None = None,
 ) -> tuple[Any, TrainingResult]:
@@ -115,6 +118,8 @@ def train_policy_model_streaming(
         position_vocabulary_size=position_vocabulary_size,
         move_vocabulary_size=move_vocabulary_size,
     )
+    if initial_state_dict is not None:
+        model.load_state_dict(initial_state_dict)
     model = model.to(active_device)
     parameter_summary = summarize_trainable_parameters(model)
 

@@ -25,6 +25,7 @@ from persona_chess.neural import (
     is_torch_available,
     iter_policy_batches,
     legal_move_id_entries,
+    load_torch_policy_state,
     predict_policy_moves_from_checkpoint,
     prepare_streaming_neural_artifacts,
     save_torch_policy_checkpoint,
@@ -103,6 +104,13 @@ def test_position_tokenizer_and_vocabulary_round_trip(tmp_path: Path) -> None:
     assert PositionVocabulary.load(output) == vocabulary
 
 
+def test_standard_position_vocabulary_covers_start_position_tokens() -> None:
+    vocabulary = PositionVocabulary.standard()
+    tokens = PositionTokenizer().tokenize_fen("startpos")
+
+    assert all(vocabulary.encode(token) != vocabulary.unk_id for token in tokens)
+
+
 def test_policy_samples_and_batches_are_model_ready() -> None:
     examples = build_move_examples(FIXTURE, GameFilter(player="Target Player"))
     records = build_training_records(examples)
@@ -141,6 +149,7 @@ def test_streaming_policy_batches_are_model_ready() -> None:
 
     assert artifacts.training_examples == len(records)
     assert artifacts.move_vocabulary.size > 4000
+    assert artifacts.position_vocabulary == PositionVocabulary.standard()
     assert sum(batch.size for batch in batches) == len(records)
     assert batches[0].size == 3
 
@@ -204,6 +213,82 @@ def test_torch_training_reports_validation_metrics() -> None:
     assert result.validation_top3_accuracy is not None
     assert result.best_epoch == 1
     assert result.mixed_precision == "off"
+
+
+def test_torch_training_can_initialize_from_base_checkpoint(tmp_path: Path) -> None:
+    if not is_torch_available():
+        pytest.skip("PyTorch is not installed in this environment.")
+
+    examples = build_move_examples(FIXTURE, GameFilter(player="Target Player"))
+    records = build_training_records(examples)
+    transformer = TransformerPolicyConfig(
+        max_sequence_length=64,
+        d_model=32,
+        n_layers=1,
+        n_heads=4,
+        dropout=0.0,
+    )
+    training = NeuralTrainingConfig(
+        epochs=1,
+        batch_size=5,
+        learning_rate=1e-3,
+        warmup_ratio=0.0,
+        mixed_precision="off",
+    )
+    move_vocabulary = MoveVocabulary.standard()
+    position_vocabulary = PositionVocabulary.standard()
+    batches = list(
+        iter_policy_batches(
+            iter(records),
+            position_vocabulary=position_vocabulary,
+            move_vocabulary=move_vocabulary,
+            max_sequence_length=transformer.max_sequence_length,
+            batch_size=training.batch_size,
+        )
+    )
+
+    base_model, base_result = train_policy_model(
+        batches,
+        transformer=transformer,
+        training=training,
+        position_vocabulary_size=position_vocabulary.size,
+        move_vocabulary_size=move_vocabulary.size,
+        device="cpu",
+    )
+    manifest = create_adapter_manifest_from_vocabulary_sizes(
+        player="persona-chess-base",
+        transformer=transformer,
+        training=training,
+        move_vocabulary_size=move_vocabulary.size,
+        position_vocabulary_size=position_vocabulary.size,
+        training_examples=len(records),
+    )
+    save_torch_policy_checkpoint(
+        tmp_path,
+        model=base_model,
+        adapter_manifest=manifest,
+        move_vocabulary=move_vocabulary,
+        position_vocabulary=position_vocabulary,
+        training_result=base_result,
+        lora_applied=False,
+    )
+    state_dict, checkpoint_manifest, _, checkpoint_moves, checkpoint_positions = (
+        load_torch_policy_state(tmp_path, device="cpu")
+    )
+    _, initialized_result = train_policy_model(
+        batches,
+        transformer=transformer,
+        training=training,
+        position_vocabulary_size=position_vocabulary.size,
+        move_vocabulary_size=move_vocabulary.size,
+        device="cpu",
+        initial_state_dict=state_dict,
+    )
+
+    assert not checkpoint_manifest.lora_applied
+    assert checkpoint_moves == move_vocabulary
+    assert checkpoint_positions == position_vocabulary
+    assert initialized_result.optimizer_steps > 0
 
 
 def test_create_adapter_manifest_from_streaming_artifact_sizes() -> None:

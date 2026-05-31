@@ -53,7 +53,7 @@ persona-chess prepare-neural-stream target-player.train.jsonl "Target Player" --
 persona-chess recommend-neural-config --training-examples 100000 --device cuda
 persona-chess validate-neural adapter.manifest.json moves.vocab.json positions.vocab.json
 persona-chess train-neural games.pgn "Target Player" --checkpoint-dir checkpoints/player --use-lora
-persona-chess train-neural-stream target-player.train.jsonl --manifest adapter.manifest.json --move-vocab moves.vocab.json --position-vocab positions.vocab.json --checkpoint-dir checkpoints/player
+persona-chess train-neural-stream target-player.train.jsonl --manifest adapter.manifest.json --move-vocab moves.vocab.json --position-vocab positions.vocab.json --checkpoint-dir checkpoints/player --init-checkpoint checkpoints/base
 persona-chess neural-move checkpoints/player --fen "startpos"
 persona-chess engine-move target-player.persona.json --engine-path /path/to/stockfish --fen "startpos"
 ```
@@ -105,7 +105,14 @@ move from a large public PGN instead of filtering by one player:
 persona-chess export-base-training-stream public-games.pgn --out base.train.jsonl
 persona-chess split-training-stream base.train.jsonl --train-out base.fit.jsonl --validation-out base.valid.jsonl
 persona-chess prepare-neural-stream base.fit.jsonl "persona-chess-base" --manifest-out base.manifest.json --move-vocab-out base.moves.json --position-vocab-out base.positions.json --config-profile large
+persona-chess train-neural-stream base.fit.jsonl --manifest base.manifest.json --move-vocab base.moves.json --position-vocab base.positions.json --checkpoint-dir checkpoints/base --validation-records base.valid.jsonl --full-finetune
+persona-chess train-neural-stream target-player.fit.jsonl --manifest adapter.manifest.json --move-vocab base.moves.json --position-vocab base.positions.json --checkpoint-dir checkpoints/player --validation-records target-player.valid.jsonl --init-checkpoint checkpoints/base --use-lora
 ```
+
+Neural preparation uses a stable chess-wide position vocabulary by default so base
+checkpoints and persona adapters can share the same embedding shapes. Use
+`--data-position-vocab` only for isolated experiments that will not initialize from
+another checkpoint.
 
 ## Neural Auto Configuration
 

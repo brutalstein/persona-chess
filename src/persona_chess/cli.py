@@ -5,7 +5,7 @@ import random
 from collections.abc import Iterable
 from dataclasses import replace
 from pathlib import Path
-from typing import Annotated, Literal, TypeVar
+from typing import Annotated, Any, Literal, TypeVar
 
 import chess.engine
 import typer
@@ -39,9 +39,9 @@ from persona_chess.neural import (
     TransformerPolicyConfig,
     build_policy_samples,
     collate_policy_samples,
-    create_adapter_manifest,
     create_adapter_manifest_from_vocabulary_sizes,
     iter_policy_batches,
+    load_torch_policy_state,
     predict_policy_moves_from_checkpoint,
     prepare_streaming_neural_artifacts,
     recommend_neural_config,
@@ -286,6 +286,13 @@ def prepare_neural(
         Path,
         typer.Option(help="Position vocabulary output path."),
     ],
+    standard_position_vocabulary: Annotated[
+        bool,
+        typer.Option(
+            "--standard-position-vocab/--data-position-vocab",
+            help="Use a stable chess-wide position vocabulary for checkpoint compatibility.",
+        ),
+    ] = True,
     base_model: Annotated[
         str,
         typer.Option(help="Base model identifier for the future adapter."),
@@ -385,15 +392,20 @@ def prepare_neural(
         lora_alpha=lora_alpha,
         lora_dropout=lora_dropout,
     )
-    move_vocabulary = MoveVocabulary.from_records(records)
-    position_vocabulary = PositionVocabulary.from_records(records)
-    manifest = create_adapter_manifest(
+    move_vocabulary = MoveVocabulary.standard()
+    position_vocabulary = _position_vocabulary_for_records(
         records,
+        standard_position_vocabulary=standard_position_vocabulary,
+    )
+    manifest = create_adapter_manifest_from_vocabulary_sizes(
         player=player,
         base_model=base_model,
         transformer=auto_config.transformer,
         training=auto_config.training,
         lora=auto_config.lora,
+        move_vocabulary_size=move_vocabulary.size,
+        position_vocabulary_size=position_vocabulary.size,
+        training_examples=len(records),
     )
 
     move_vocabulary.save(move_vocab_out)
@@ -418,6 +430,13 @@ def prepare_neural_stream(
         typer.Option("--move-vocab-out", "--vocab-out", help="Move vocabulary output path."),
     ],
     position_vocab_out: Annotated[Path, typer.Option(help="Position vocabulary output path.")],
+    standard_position_vocabulary: Annotated[
+        bool,
+        typer.Option(
+            "--standard-position-vocab/--data-position-vocab",
+            help="Use a stable chess-wide position vocabulary for checkpoint compatibility.",
+        ),
+    ] = True,
     base_model: Annotated[
         str,
         typer.Option(help="Base model identifier for the future adapter."),
@@ -487,7 +506,10 @@ def prepare_neural_stream(
         typer.Option(help="LoRA dropout. Auto-selected when omitted."),
     ] = None,
 ) -> None:
-    artifacts = prepare_streaming_neural_artifacts(read_training_records_jsonl(training_records))
+    artifacts = prepare_streaming_neural_artifacts(
+        read_training_records_jsonl(training_records),
+        standard_position_vocabulary=standard_position_vocabulary,
+    )
     auto_config = _resolve_neural_auto_config(
         artifacts.training_examples,
         config_profile=config_profile,
@@ -580,6 +602,10 @@ def train_neural(
     pgn: Annotated[Path, typer.Argument(help="Path to a PGN file.")],
     player: Annotated[str, typer.Argument(help="Player name as written in PGN headers.")],
     checkpoint_dir: Annotated[Path, typer.Option(help="Checkpoint output directory.")],
+    init_checkpoint: Annotated[
+        Path | None,
+        typer.Option(help="Optional full/base checkpoint to initialize model weights from."),
+    ] = None,
     color: Annotated[PlayerColor, typer.Option(help="Filter games by player color.")] = "both",
     max_games: Annotated[
         int | None,
@@ -598,6 +624,13 @@ def train_neural(
         NeuralConfigProfile,
         typer.Option(help="Hardware preset for omitted neural options."),
     ] = "auto",
+    standard_position_vocabulary: Annotated[
+        bool,
+        typer.Option(
+            "--standard-position-vocab/--data-position-vocab",
+            help="Use a stable chess-wide position vocabulary for checkpoint compatibility.",
+        ),
+    ] = True,
     validation_ratio: Annotated[
         float,
         typer.Option(help="Hold out this ratio of records for validation."),
@@ -696,15 +729,31 @@ def train_neural(
     typer.echo(
         _format_neural_config_summary(auto_config, validation_examples=len(validation_records))
     )
-    move_vocabulary = MoveVocabulary.from_records(train_records)
-    position_vocabulary = PositionVocabulary.from_records(train_records)
-    manifest = create_adapter_manifest(
+    move_vocabulary = MoveVocabulary.standard()
+    position_vocabulary = _position_vocabulary_for_records(
         train_records,
+        standard_position_vocabulary=standard_position_vocabulary,
+    )
+    manifest = create_adapter_manifest_from_vocabulary_sizes(
         player=player,
         transformer=transformer,
         lora=lora,
         training=training,
+        move_vocabulary_size=move_vocabulary.size,
+        position_vocabulary_size=position_vocabulary.size,
+        training_examples=len(train_records),
     )
+    try:
+        initial_state_dict = _load_initial_policy_state(
+            init_checkpoint,
+            transformer=transformer,
+            move_vocabulary=move_vocabulary,
+            position_vocabulary=position_vocabulary,
+            device=device,
+        )
+    except OptionalDependencyError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
     samples = build_policy_samples(
         train_records,
         position_vocabulary=position_vocabulary,
@@ -742,6 +791,7 @@ def train_neural(
             device=device,
             lora=lora if use_lora else None,
             validation_batches=validation_batches,
+            initial_state_dict=initial_state_dict,
         )
         checkpoint = save_torch_policy_checkpoint(
             checkpoint_dir,
@@ -770,6 +820,10 @@ def train_neural_stream(
     manifest: Annotated[Path, typer.Option(help="Adapter manifest path.")],
     move_vocab: Annotated[Path, typer.Option(help="Move vocabulary path.")],
     position_vocab: Annotated[Path, typer.Option(help="Position vocabulary path.")],
+    init_checkpoint: Annotated[
+        Path | None,
+        typer.Option(help="Optional full/base checkpoint to initialize model weights from."),
+    ] = None,
     validation_records: Annotated[
         Path | None,
         typer.Option(help="Optional validation training JSONL path."),
@@ -864,6 +918,17 @@ def train_neural_stream(
         lora_alpha=lora_alpha,
         lora_dropout=lora_dropout,
     )
+    try:
+        initial_state_dict = _load_initial_policy_state(
+            init_checkpoint,
+            transformer=adapter_manifest.transformer,
+            move_vocabulary=move_vocabulary,
+            position_vocabulary=position_vocabulary,
+            device=device,
+        )
+    except OptionalDependencyError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
     typer.echo(
         _format_manifest_neural_config_summary(
             adapter_manifest,
@@ -900,6 +965,7 @@ def train_neural_stream(
             move_vocabulary_size=move_vocabulary.size,
             device=device,
             lora=adapter_manifest.lora if use_lora else None,
+            initial_state_dict=initial_state_dict,
             validation_batch_factory=validation_batch_factory
             if validation_records is not None
             else None,
@@ -1427,6 +1493,44 @@ def _split_validation_records(
         record for index, record in enumerate(records) if index in validation_indices
     ]
     return train_records, validation_records
+
+
+def _position_vocabulary_for_records(
+    records: list[TrainingRecord],
+    *,
+    standard_position_vocabulary: bool,
+) -> PositionVocabulary:
+    if standard_position_vocabulary:
+        return PositionVocabulary.standard()
+    return PositionVocabulary.from_records(records)
+
+
+def _load_initial_policy_state(
+    init_checkpoint: Path | None,
+    *,
+    transformer: TransformerPolicyConfig,
+    move_vocabulary: MoveVocabulary,
+    position_vocabulary: PositionVocabulary,
+    device: str | None,
+) -> dict[str, Any] | None:
+    if init_checkpoint is None:
+        return None
+
+    state_dict, checkpoint_manifest, adapter_manifest, checkpoint_moves, checkpoint_positions = (
+        load_torch_policy_state(init_checkpoint, device=device)
+    )
+    if checkpoint_manifest.lora_applied:
+        raise typer.BadParameter(
+            "init checkpoint must be a full/base checkpoint saved without LoRA applied"
+        )
+    if adapter_manifest.transformer.to_dict() != transformer.to_dict():
+        raise typer.BadParameter("init checkpoint transformer config does not match this run")
+    if checkpoint_moves.id_to_token != move_vocabulary.id_to_token:
+        raise typer.BadParameter("init checkpoint move vocabulary does not match this run")
+    if checkpoint_positions.id_to_token != position_vocabulary.id_to_token:
+        raise typer.BadParameter("init checkpoint position vocabulary does not match this run")
+    typer.echo(f"Loaded initial checkpoint: {init_checkpoint}")
+    return state_dict
 
 
 def _record_split_key(record: TrainingRecord) -> str:

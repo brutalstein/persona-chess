@@ -9,6 +9,7 @@ from persona_chess.neural.checkpoint import (
     NEURAL_CHECKPOINT_SCHEMA,
     NeuralCheckpointManifest,
     load_torch_policy_checkpoint,
+    load_torch_policy_state,
     save_torch_policy_checkpoint,
 )
 from persona_chess.neural.config import (
@@ -106,6 +107,7 @@ __all__ = [
     "is_torch_available",
     "legal_move_id_entries",
     "load_torch_policy_checkpoint",
+    "load_torch_policy_state",
     "policy_batch_to_tensors",
     "prepare_streaming_neural_artifacts",
     "predict_policy_moves",

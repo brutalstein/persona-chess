@@ -179,3 +179,35 @@ def load_torch_policy_checkpoint(
         model = model.to(device)
     model.eval()
     return model, checkpoint_manifest, adapter_manifest, move_vocabulary, position_vocabulary
+
+
+def load_torch_policy_state(
+    directory: str | Path, *, device: str | None = None
+) -> tuple[
+    dict[str, Any],
+    NeuralCheckpointManifest,
+    AdapterManifest,
+    MoveVocabulary,
+    PositionVocabulary,
+]:
+    torch = require_torch()
+    checkpoint_dir = Path(directory)
+    checkpoint_manifest = NeuralCheckpointManifest.load(checkpoint_dir / CHECKPOINT_MANIFEST_FILE)
+    adapter_manifest = AdapterManifest.load(
+        checkpoint_dir / checkpoint_manifest.adapter_manifest_file
+    )
+    move_vocabulary = MoveVocabulary.load(checkpoint_dir / checkpoint_manifest.move_vocabulary_file)
+    position_vocabulary = PositionVocabulary.load(
+        checkpoint_dir / checkpoint_manifest.position_vocabulary_file
+    )
+    state = torch.load(
+        checkpoint_dir / checkpoint_manifest.model_state_file,
+        map_location=torch.device(device) if device else None,
+    )
+    return (
+        state["model_state_dict"],
+        checkpoint_manifest,
+        adapter_manifest,
+        move_vocabulary,
+        position_vocabulary,
+    )
