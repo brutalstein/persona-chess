@@ -48,6 +48,7 @@ persona-chess split games.pgn "Target Player" --train-out train.jsonl --test-out
 persona-chess benchmark games.pgn "Target Player" --model-type blend --out benchmark.json
 persona-chess prepare-neural games.pgn "Target Player" --manifest-out adapter.manifest.json --move-vocab-out moves.vocab.json --position-vocab-out positions.vocab.json
 persona-chess prepare-neural-stream target-player.train.jsonl "Target Player" --manifest-out adapter.manifest.json --move-vocab-out moves.vocab.json --position-vocab-out positions.vocab.json
+persona-chess recommend-neural-config --training-examples 100000 --device cuda
 persona-chess validate-neural adapter.manifest.json moves.vocab.json positions.vocab.json
 persona-chess train-neural games.pgn "Target Player" --checkpoint-dir checkpoints/player --use-lora
 persona-chess train-neural-stream target-player.train.jsonl --manifest adapter.manifest.json --move-vocab moves.vocab.json --position-vocab positions.vocab.json --checkpoint-dir checkpoints/player
@@ -93,6 +94,23 @@ persona-chess export-training-stream games.pgn "Target Player" --out target-play
 persona-chess prepare-neural-stream target-player.train.jsonl "Target Player" --manifest-out adapter.manifest.json --move-vocab-out moves.vocab.json --position-vocab-out positions.vocab.json
 persona-chess train-neural-stream target-player.train.jsonl --manifest adapter.manifest.json --move-vocab moves.vocab.json --position-vocab positions.vocab.json --checkpoint-dir checkpoints/player --use-lora
 ```
+
+## Neural Auto Configuration
+
+Neural commands use hardware-aware defaults when training settings are omitted.
+`persona-chess` inspects CPU memory and optional CUDA memory, then chooses a
+small, balanced, or large Transformer + LoRA profile. Users can still override
+training knobs directly:
+
+```bash
+persona-chess recommend-neural-config --training-examples 500000 --device cuda
+persona-chess prepare-neural-stream target-player.train.jsonl "Target Player" --manifest-out adapter.manifest.json --move-vocab-out moves.vocab.json --position-vocab-out positions.vocab.json --config-profile balanced --epochs 3 --batch-size 32 --gradient-accumulation-steps 4
+persona-chess train-neural-stream target-player.train.jsonl --manifest adapter.manifest.json --move-vocab moves.vocab.json --position-vocab positions.vocab.json --checkpoint-dir checkpoints/player --epochs 2 --batch-size 16
+```
+
+For very large datasets, keep the streaming path: export once, prepare the neural
+artifacts from JSONL, then train from the manifest. This avoids loading the full
+PGN or training set into memory at once.
 
 ## Project Direction
 

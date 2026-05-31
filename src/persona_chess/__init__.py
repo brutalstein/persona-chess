@@ -10,14 +10,19 @@ from persona_chess.models.phase import PhasePersonaModel
 from persona_chess.models.types import MovePrediction
 from persona_chess.neural import (
     AdapterManifest,
+    HardwareProfile,
     LoraConfig,
     MoveVocabulary,
+    NeuralAutoConfig,
+    NeuralConfigProfile,
     NeuralTrainingConfig,
     PolicyBatch,
     PolicySample,
     PositionTokenizer,
     PositionVocabulary,
     TransformerPolicyConfig,
+    detect_hardware_profile,
+    recommend_neural_config,
 )
 from persona_chess.pgn.filters import GameFilter
 from persona_chess.profile.types import PersonaProfile
@@ -27,12 +32,15 @@ __all__ = [
     "FrequencyPersonaModel",
     "BlendPersonaModel",
     "GameFilter",
+    "HardwareProfile",
     "MoveExample",
     "MoveMatchMetrics",
     "MovePrediction",
     "MoveVocabulary",
     "AdapterManifest",
     "LoraConfig",
+    "NeuralAutoConfig",
+    "NeuralConfigProfile",
     "NeuralTrainingConfig",
     "PolicyBatch",
     "PolicySample",
@@ -47,5 +55,7 @@ __all__ = [
     "TrainingRecord",
     "__version__",
     "build_model_card",
+    "detect_hardware_profile",
     "iter_training_records",
+    "recommend_neural_config",
 ]

@@ -1,5 +1,6 @@
 import json
 from collections.abc import Iterable
+from dataclasses import replace
 from pathlib import Path
 from typing import Annotated, Literal, TypeVar
 
@@ -22,6 +23,8 @@ from persona_chess.neural import (
     AdapterManifest,
     LoraConfig,
     MoveVocabulary,
+    NeuralAutoConfig,
+    NeuralConfigProfile,
     NeuralTrainingConfig,
     PolicyBatch,
     PositionVocabulary,
@@ -33,6 +36,7 @@ from persona_chess.neural import (
     iter_policy_batches,
     predict_policy_moves_from_checkpoint,
     prepare_streaming_neural_artifacts,
+    recommend_neural_config,
     save_torch_policy_checkpoint,
     train_policy_model,
     train_policy_model_streaming,
@@ -202,6 +206,58 @@ def prepare_neural(
         int,
         typer.Option(help="Skip early plies when preparing neural records."),
     ] = 0,
+    config_profile: Annotated[
+        NeuralConfigProfile,
+        typer.Option(help="Hardware preset for omitted neural options."),
+    ] = "auto",
+    device: Annotated[
+        str | None,
+        typer.Option(help="Target Torch device for hardware-aware defaults, such as cpu or cuda."),
+    ] = None,
+    epochs: Annotated[
+        int | None,
+        typer.Option(help="Training epochs. Auto-selected when omitted."),
+    ] = None,
+    batch_size: Annotated[
+        int | None,
+        typer.Option(help="Micro-batch size. Auto-selected when omitted."),
+    ] = None,
+    learning_rate: Annotated[
+        float | None,
+        typer.Option(help="Learning rate. Auto-selected when omitted."),
+    ] = None,
+    gradient_accumulation_steps: Annotated[
+        int | None,
+        typer.Option(help="Optimizer steps are run after this many batches."),
+    ] = None,
+    d_model: Annotated[
+        int | None,
+        typer.Option(help="Transformer hidden size. Auto-selected when omitted."),
+    ] = None,
+    n_layers: Annotated[
+        int | None,
+        typer.Option(help="Transformer layer count. Auto-selected when omitted."),
+    ] = None,
+    n_heads: Annotated[
+        int | None,
+        typer.Option(help="Transformer attention head count. Auto-selected when omitted."),
+    ] = None,
+    dropout: Annotated[
+        float | None,
+        typer.Option(help="Transformer dropout. Auto-selected when omitted."),
+    ] = None,
+    lora_rank: Annotated[
+        int | None,
+        typer.Option(help="LoRA rank. Auto-selected when omitted."),
+    ] = None,
+    lora_alpha: Annotated[
+        int | None,
+        typer.Option(help="LoRA alpha. Auto-selected when omitted."),
+    ] = None,
+    lora_dropout: Annotated[
+        float | None,
+        typer.Option(help="LoRA dropout. Auto-selected when omitted."),
+    ] = None,
 ) -> None:
     examples = build_move_examples(
         pgn,
@@ -209,17 +265,37 @@ def prepare_neural(
         skip_first_plies=skip_first_plies,
     )
     records = build_training_records(examples)
+    auto_config = _resolve_neural_auto_config(
+        len(records),
+        config_profile=config_profile,
+        device=device,
+        epochs=epochs,
+        batch_size=batch_size,
+        learning_rate=learning_rate,
+        gradient_accumulation_steps=gradient_accumulation_steps,
+        d_model=d_model,
+        n_layers=n_layers,
+        n_heads=n_heads,
+        dropout=dropout,
+        lora_rank=lora_rank,
+        lora_alpha=lora_alpha,
+        lora_dropout=lora_dropout,
+    )
     move_vocabulary = MoveVocabulary.from_records(records)
     position_vocabulary = PositionVocabulary.from_records(records)
     manifest = create_adapter_manifest(
         records,
         player=player,
         base_model=base_model,
+        transformer=auto_config.transformer,
+        training=auto_config.training,
+        lora=auto_config.lora,
     )
 
     move_vocabulary.save(move_vocab_out)
     position_vocabulary.save(position_vocab_out)
     manifest.save(manifest_out)
+    typer.echo(_format_neural_config_summary(auto_config))
     typer.echo(f"Wrote neural manifest: {manifest_out}")
     typer.echo(f"Wrote move vocabulary: {move_vocab_out}")
     typer.echo(f"Wrote position vocabulary: {position_vocab_out}")
@@ -242,42 +318,82 @@ def prepare_neural_stream(
         str,
         typer.Option(help="Base model identifier for the future adapter."),
     ] = "persona-chess/base-small",
-    epochs: Annotated[int, typer.Option(help="Training epochs for the manifest.")] = 3,
-    batch_size: Annotated[int, typer.Option(help="Batch size for streaming training.")] = 64,
-    learning_rate: Annotated[float, typer.Option(help="Learning rate.")] = 3e-4,
+    config_profile: Annotated[
+        NeuralConfigProfile,
+        typer.Option(help="Hardware preset for omitted neural options."),
+    ] = "auto",
+    device: Annotated[
+        str | None,
+        typer.Option(help="Target Torch device for hardware-aware defaults, such as cpu or cuda."),
+    ] = None,
+    epochs: Annotated[
+        int | None,
+        typer.Option(help="Training epochs for the manifest. Auto-selected when omitted."),
+    ] = None,
+    batch_size: Annotated[
+        int | None,
+        typer.Option(help="Batch size for streaming training. Auto-selected when omitted."),
+    ] = None,
+    learning_rate: Annotated[
+        float | None,
+        typer.Option(help="Learning rate. Auto-selected when omitted."),
+    ] = None,
     gradient_accumulation_steps: Annotated[
-        int,
+        int | None,
         typer.Option(help="Optimizer steps are run after this many batches."),
-    ] = 1,
-    d_model: Annotated[int, typer.Option(help="Transformer hidden size.")] = 256,
-    n_layers: Annotated[int, typer.Option(help="Transformer layer count.")] = 6,
-    n_heads: Annotated[int, typer.Option(help="Transformer attention head count.")] = 8,
-    dropout: Annotated[float, typer.Option(help="Transformer dropout.")] = 0.1,
-    lora_rank: Annotated[int, typer.Option(help="LoRA rank.")] = 8,
-    lora_alpha: Annotated[int, typer.Option(help="LoRA alpha.")] = 16,
-    lora_dropout: Annotated[float, typer.Option(help="LoRA dropout.")] = 0.05,
+    ] = None,
+    d_model: Annotated[
+        int | None,
+        typer.Option(help="Transformer hidden size. Auto-selected when omitted."),
+    ] = None,
+    n_layers: Annotated[
+        int | None,
+        typer.Option(help="Transformer layer count. Auto-selected when omitted."),
+    ] = None,
+    n_heads: Annotated[
+        int | None,
+        typer.Option(help="Transformer attention head count. Auto-selected when omitted."),
+    ] = None,
+    dropout: Annotated[
+        float | None,
+        typer.Option(help="Transformer dropout. Auto-selected when omitted."),
+    ] = None,
+    lora_rank: Annotated[
+        int | None,
+        typer.Option(help="LoRA rank. Auto-selected when omitted."),
+    ] = None,
+    lora_alpha: Annotated[
+        int | None,
+        typer.Option(help="LoRA alpha. Auto-selected when omitted."),
+    ] = None,
+    lora_dropout: Annotated[
+        float | None,
+        typer.Option(help="LoRA dropout. Auto-selected when omitted."),
+    ] = None,
 ) -> None:
     artifacts = prepare_streaming_neural_artifacts(read_training_records_jsonl(training_records))
-    transformer = TransformerPolicyConfig(
-        max_sequence_length=256,
-        d_model=d_model,
-        n_layers=n_layers,
-        n_heads=n_heads,
-        dropout=dropout,
-    )
-    training = NeuralTrainingConfig(
+    auto_config = _resolve_neural_auto_config(
+        artifacts.training_examples,
+        config_profile=config_profile,
+        device=device,
         epochs=epochs,
         batch_size=batch_size,
         learning_rate=learning_rate,
         gradient_accumulation_steps=gradient_accumulation_steps,
+        d_model=d_model,
+        n_layers=n_layers,
+        n_heads=n_heads,
+        dropout=dropout,
+        lora_rank=lora_rank,
+        lora_alpha=lora_alpha,
+        lora_dropout=lora_dropout,
     )
-    lora = LoraConfig(rank=lora_rank, alpha=lora_alpha, dropout=lora_dropout)
     manifest = create_adapter_manifest_from_vocabulary_sizes(
         player=player,
         base_model=base_model,
-        transformer=transformer,
-        training=training,
-        lora=lora,
+        transformer=auto_config.transformer,
+        training=auto_config.training,
+        lora=auto_config.lora,
         move_vocabulary_size=artifacts.move_vocabulary.size,
         position_vocabulary_size=artifacts.position_vocabulary.size,
         training_examples=artifacts.training_examples,
@@ -286,10 +402,42 @@ def prepare_neural_stream(
     artifacts.move_vocabulary.save(move_vocab_out)
     artifacts.position_vocabulary.save(position_vocab_out)
     manifest.save(manifest_out)
+    typer.echo(_format_neural_config_summary(auto_config))
     typer.echo(f"Wrote neural manifest: {manifest_out}")
     typer.echo(f"Wrote move vocabulary: {move_vocab_out}")
     typer.echo(f"Wrote position vocabulary: {position_vocab_out}")
     typer.echo(f"Counted {artifacts.training_examples} streaming training records.")
+
+
+@app.command("recommend-neural-config")
+def recommend_neural_config_command(
+    training_examples: Annotated[
+        int | None,
+        typer.Option(help="Number of training records to tune for."),
+    ] = None,
+    training_records: Annotated[
+        Path | None,
+        typer.Option(help="Training JSONL path to count and tune for."),
+    ] = None,
+    config_profile: Annotated[
+        NeuralConfigProfile,
+        typer.Option(help="Hardware preset to use for the recommendation."),
+    ] = "auto",
+    device: Annotated[
+        str | None,
+        typer.Option(help="Target Torch device for hardware-aware defaults, such as cpu or cuda."),
+    ] = None,
+) -> None:
+    examples = _resolve_training_example_count(
+        training_examples=training_examples,
+        training_records=training_records,
+    )
+    auto_config = recommend_neural_config(
+        examples,
+        profile=config_profile,
+        device=device,
+    )
+    typer.echo(json.dumps(auto_config.to_dict(), indent=2, sort_keys=True))
 
 
 @app.command("validate-neural")
@@ -327,20 +475,54 @@ def train_neural(
         typer.Option("--use-lora/--full-finetune", help="Train a PEFT LoRA adapter."),
     ] = True,
     device: Annotated[str | None, typer.Option(help="Torch device, such as cpu or cuda.")] = None,
-    epochs: Annotated[int, typer.Option(help="Training epochs.")] = 3,
-    batch_size: Annotated[int, typer.Option(help="Batch size.")] = 64,
-    learning_rate: Annotated[float, typer.Option(help="Learning rate.")] = 3e-4,
+    config_profile: Annotated[
+        NeuralConfigProfile,
+        typer.Option(help="Hardware preset for omitted neural options."),
+    ] = "auto",
+    epochs: Annotated[
+        int | None,
+        typer.Option(help="Training epochs. Auto-selected when omitted."),
+    ] = None,
+    batch_size: Annotated[
+        int | None,
+        typer.Option(help="Batch size. Auto-selected when omitted."),
+    ] = None,
+    learning_rate: Annotated[
+        float | None,
+        typer.Option(help="Learning rate. Auto-selected when omitted."),
+    ] = None,
     gradient_accumulation_steps: Annotated[
-        int,
+        int | None,
         typer.Option(help="Optimizer steps are run after this many batches."),
-    ] = 1,
-    d_model: Annotated[int, typer.Option(help="Transformer hidden size.")] = 256,
-    n_layers: Annotated[int, typer.Option(help="Transformer layer count.")] = 6,
-    n_heads: Annotated[int, typer.Option(help="Transformer attention head count.")] = 8,
-    dropout: Annotated[float, typer.Option(help="Transformer dropout.")] = 0.1,
-    lora_rank: Annotated[int, typer.Option(help="LoRA rank.")] = 8,
-    lora_alpha: Annotated[int, typer.Option(help="LoRA alpha.")] = 16,
-    lora_dropout: Annotated[float, typer.Option(help="LoRA dropout.")] = 0.05,
+    ] = None,
+    d_model: Annotated[
+        int | None,
+        typer.Option(help="Transformer hidden size. Auto-selected when omitted."),
+    ] = None,
+    n_layers: Annotated[
+        int | None,
+        typer.Option(help="Transformer layer count. Auto-selected when omitted."),
+    ] = None,
+    n_heads: Annotated[
+        int | None,
+        typer.Option(help="Transformer attention head count. Auto-selected when omitted."),
+    ] = None,
+    dropout: Annotated[
+        float | None,
+        typer.Option(help="Transformer dropout. Auto-selected when omitted."),
+    ] = None,
+    lora_rank: Annotated[
+        int | None,
+        typer.Option(help="LoRA rank. Auto-selected when omitted."),
+    ] = None,
+    lora_alpha: Annotated[
+        int | None,
+        typer.Option(help="LoRA alpha. Auto-selected when omitted."),
+    ] = None,
+    lora_dropout: Annotated[
+        float | None,
+        typer.Option(help="LoRA dropout. Auto-selected when omitted."),
+    ] = None,
 ) -> None:
     examples = build_move_examples(
         pgn,
@@ -349,20 +531,26 @@ def train_neural(
     )
     records = build_training_records(examples)
 
-    transformer = TransformerPolicyConfig(
-        max_sequence_length=256,
-        d_model=d_model,
-        n_layers=n_layers,
-        n_heads=n_heads,
-        dropout=dropout,
-    )
-    training = NeuralTrainingConfig(
+    auto_config = _resolve_neural_auto_config(
+        len(records),
+        config_profile=config_profile,
+        device=device,
         epochs=epochs,
         batch_size=batch_size,
         learning_rate=learning_rate,
         gradient_accumulation_steps=gradient_accumulation_steps,
+        d_model=d_model,
+        n_layers=n_layers,
+        n_heads=n_heads,
+        dropout=dropout,
+        lora_rank=lora_rank,
+        lora_alpha=lora_alpha,
+        lora_dropout=lora_dropout,
     )
-    lora = LoraConfig(rank=lora_rank, alpha=lora_alpha, dropout=lora_dropout)
+    transformer = auto_config.transformer
+    training = auto_config.training
+    lora = auto_config.lora
+    typer.echo(_format_neural_config_summary(auto_config))
     move_vocabulary = MoveVocabulary.from_records(records)
     position_vocabulary = PositionVocabulary.from_records(records)
     manifest = create_adapter_manifest(
@@ -425,6 +613,50 @@ def train_neural_stream(
         typer.Option("--use-lora/--full-finetune", help="Train a PEFT LoRA adapter."),
     ] = True,
     device: Annotated[str | None, typer.Option(help="Torch device, such as cpu or cuda.")] = None,
+    epochs: Annotated[
+        int | None,
+        typer.Option(help="Override training epochs from the manifest."),
+    ] = None,
+    batch_size: Annotated[
+        int | None,
+        typer.Option(help="Override batch size from the manifest."),
+    ] = None,
+    learning_rate: Annotated[
+        float | None,
+        typer.Option(help="Override learning rate from the manifest."),
+    ] = None,
+    gradient_accumulation_steps: Annotated[
+        int | None,
+        typer.Option(help="Override gradient accumulation from the manifest."),
+    ] = None,
+    d_model: Annotated[
+        int | None,
+        typer.Option(help="Override transformer hidden size from the manifest."),
+    ] = None,
+    n_layers: Annotated[
+        int | None,
+        typer.Option(help="Override transformer layer count from the manifest."),
+    ] = None,
+    n_heads: Annotated[
+        int | None,
+        typer.Option(help="Override transformer attention head count from the manifest."),
+    ] = None,
+    dropout: Annotated[
+        float | None,
+        typer.Option(help="Override transformer dropout from the manifest."),
+    ] = None,
+    lora_rank: Annotated[
+        int | None,
+        typer.Option(help="Override LoRA rank from the manifest."),
+    ] = None,
+    lora_alpha: Annotated[
+        int | None,
+        typer.Option(help="Override LoRA alpha from the manifest."),
+    ] = None,
+    lora_dropout: Annotated[
+        float | None,
+        typer.Option(help="Override LoRA dropout from the manifest."),
+    ] = None,
 ) -> None:
     adapter_manifest = AdapterManifest.load(manifest)
     move_vocabulary = MoveVocabulary.load(move_vocab)
@@ -437,6 +669,21 @@ def train_neural_stream(
     if not validation.ok:
         typer.echo(json.dumps(validation.to_dict(), indent=2, sort_keys=True), err=True)
         raise typer.Exit(code=1)
+    adapter_manifest = _override_manifest_neural_config(
+        adapter_manifest,
+        epochs=epochs,
+        batch_size=batch_size,
+        learning_rate=learning_rate,
+        gradient_accumulation_steps=gradient_accumulation_steps,
+        d_model=d_model,
+        n_layers=n_layers,
+        n_heads=n_heads,
+        dropout=dropout,
+        lora_rank=lora_rank,
+        lora_alpha=lora_alpha,
+        lora_dropout=lora_dropout,
+    )
+    typer.echo(_format_manifest_neural_config_summary(adapter_manifest))
 
     def batch_factory() -> Iterable[PolicyBatch]:
         return iter_policy_batches(
@@ -683,6 +930,225 @@ def benchmark(
         return
 
     typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+
+
+def _resolve_neural_auto_config(
+    training_examples: int,
+    *,
+    config_profile: NeuralConfigProfile,
+    device: str | None,
+    epochs: int | None,
+    batch_size: int | None,
+    learning_rate: float | None,
+    gradient_accumulation_steps: int | None,
+    d_model: int | None,
+    n_layers: int | None,
+    n_heads: int | None,
+    dropout: float | None,
+    lora_rank: int | None,
+    lora_alpha: int | None,
+    lora_dropout: float | None,
+) -> NeuralAutoConfig:
+    auto_config = recommend_neural_config(
+        training_examples,
+        profile=config_profile,
+        device=device,
+    )
+    transformer = TransformerPolicyConfig(
+        max_sequence_length=auto_config.transformer.max_sequence_length,
+        d_model=d_model if d_model is not None else auto_config.transformer.d_model,
+        n_layers=n_layers if n_layers is not None else auto_config.transformer.n_layers,
+        n_heads=n_heads if n_heads is not None else auto_config.transformer.n_heads,
+        dropout=dropout if dropout is not None else auto_config.transformer.dropout,
+    )
+    training = NeuralTrainingConfig(
+        epochs=epochs if epochs is not None else auto_config.training.epochs,
+        batch_size=batch_size if batch_size is not None else auto_config.training.batch_size,
+        learning_rate=(
+            learning_rate if learning_rate is not None else auto_config.training.learning_rate
+        ),
+        weight_decay=auto_config.training.weight_decay,
+        gradient_accumulation_steps=(
+            gradient_accumulation_steps
+            if gradient_accumulation_steps is not None
+            else auto_config.training.gradient_accumulation_steps
+        ),
+        warmup_ratio=auto_config.training.warmup_ratio,
+        seed=auto_config.training.seed,
+    )
+    lora = LoraConfig(
+        rank=lora_rank if lora_rank is not None else auto_config.lora.rank,
+        alpha=lora_alpha if lora_alpha is not None else auto_config.lora.alpha,
+        dropout=lora_dropout if lora_dropout is not None else auto_config.lora.dropout,
+        target_modules=auto_config.lora.target_modules,
+    )
+    overrides = _neural_override_names(
+        epochs=epochs,
+        batch_size=batch_size,
+        learning_rate=learning_rate,
+        gradient_accumulation_steps=gradient_accumulation_steps,
+        d_model=d_model,
+        n_layers=n_layers,
+        n_heads=n_heads,
+        dropout=dropout,
+        lora_rank=lora_rank,
+        lora_alpha=lora_alpha,
+        lora_dropout=lora_dropout,
+    )
+    notes = (f"Manual overrides applied: {', '.join(overrides)}.",) if overrides else ()
+    return auto_config.with_configs(
+        transformer=transformer,
+        training=training,
+        lora=lora,
+        notes=notes,
+    )
+
+
+def _override_manifest_neural_config(
+    manifest: AdapterManifest,
+    *,
+    epochs: int | None,
+    batch_size: int | None,
+    learning_rate: float | None,
+    gradient_accumulation_steps: int | None,
+    d_model: int | None,
+    n_layers: int | None,
+    n_heads: int | None,
+    dropout: float | None,
+    lora_rank: int | None,
+    lora_alpha: int | None,
+    lora_dropout: float | None,
+) -> AdapterManifest:
+    overrides = _neural_override_names(
+        epochs=epochs,
+        batch_size=batch_size,
+        learning_rate=learning_rate,
+        gradient_accumulation_steps=gradient_accumulation_steps,
+        d_model=d_model,
+        n_layers=n_layers,
+        n_heads=n_heads,
+        dropout=dropout,
+        lora_rank=lora_rank,
+        lora_alpha=lora_alpha,
+        lora_dropout=lora_dropout,
+    )
+    if not overrides:
+        return manifest
+
+    transformer = TransformerPolicyConfig(
+        max_sequence_length=manifest.transformer.max_sequence_length,
+        d_model=d_model if d_model is not None else manifest.transformer.d_model,
+        n_layers=n_layers if n_layers is not None else manifest.transformer.n_layers,
+        n_heads=n_heads if n_heads is not None else manifest.transformer.n_heads,
+        dropout=dropout if dropout is not None else manifest.transformer.dropout,
+    )
+    training = NeuralTrainingConfig(
+        epochs=epochs if epochs is not None else manifest.training.epochs,
+        batch_size=batch_size if batch_size is not None else manifest.training.batch_size,
+        learning_rate=learning_rate
+        if learning_rate is not None
+        else manifest.training.learning_rate,
+        weight_decay=manifest.training.weight_decay,
+        gradient_accumulation_steps=(
+            gradient_accumulation_steps
+            if gradient_accumulation_steps is not None
+            else manifest.training.gradient_accumulation_steps
+        ),
+        warmup_ratio=manifest.training.warmup_ratio,
+        seed=manifest.training.seed,
+    )
+    lora = LoraConfig(
+        rank=lora_rank if lora_rank is not None else manifest.lora.rank,
+        alpha=lora_alpha if lora_alpha is not None else manifest.lora.alpha,
+        dropout=lora_dropout if lora_dropout is not None else manifest.lora.dropout,
+        target_modules=manifest.lora.target_modules,
+    )
+    return replace(manifest, transformer=transformer, training=training, lora=lora)
+
+
+def _neural_override_names(
+    *,
+    epochs: int | None,
+    batch_size: int | None,
+    learning_rate: float | None,
+    gradient_accumulation_steps: int | None,
+    d_model: int | None,
+    n_layers: int | None,
+    n_heads: int | None,
+    dropout: float | None,
+    lora_rank: int | None,
+    lora_alpha: int | None,
+    lora_dropout: float | None,
+) -> list[str]:
+    values: list[tuple[str, object | None]] = [
+        ("epochs", epochs),
+        ("batch_size", batch_size),
+        ("learning_rate", learning_rate),
+        ("gradient_accumulation_steps", gradient_accumulation_steps),
+        ("d_model", d_model),
+        ("n_layers", n_layers),
+        ("n_heads", n_heads),
+        ("dropout", dropout),
+        ("lora_rank", lora_rank),
+        ("lora_alpha", lora_alpha),
+        ("lora_dropout", lora_dropout),
+    ]
+    return [name for name, value in values if value is not None]
+
+
+def _format_neural_config_summary(auto_config: NeuralAutoConfig) -> str:
+    transformer = auto_config.transformer
+    training = auto_config.training
+    lora = auto_config.lora
+    return (
+        "Selected neural config: "
+        f"profile={auto_config.profile}, "
+        f"device={auto_config.hardware.device_type}, "
+        f"epochs={training.epochs}, "
+        f"batch_size={training.batch_size}, "
+        f"grad_accum={training.gradient_accumulation_steps}, "
+        f"effective_batch={auto_config.effective_batch_size}, "
+        f"d_model={transformer.d_model}, "
+        f"layers={transformer.n_layers}, "
+        f"heads={transformer.n_heads}, "
+        f"lora_rank={lora.rank}"
+    )
+
+
+def _format_manifest_neural_config_summary(manifest: AdapterManifest) -> str:
+    transformer = manifest.transformer
+    training = manifest.training
+    return (
+        "Using neural manifest config: "
+        f"epochs={training.epochs}, "
+        f"batch_size={training.batch_size}, "
+        f"grad_accum={training.gradient_accumulation_steps}, "
+        f"effective_batch={training.batch_size * training.gradient_accumulation_steps}, "
+        f"d_model={transformer.d_model}, "
+        f"layers={transformer.n_layers}, "
+        f"heads={transformer.n_heads}, "
+        f"lora_rank={manifest.lora.rank}"
+    )
+
+
+def _resolve_training_example_count(
+    *,
+    training_examples: int | None,
+    training_records: Path | None,
+) -> int:
+    if training_examples is not None:
+        return _require_positive_training_examples(training_examples)
+    if training_records is not None:
+        return _require_positive_training_examples(
+            sum(1 for _ in read_training_records_jsonl(training_records))
+        )
+    raise typer.BadParameter("Provide --training-examples or --training-records.")
+
+
+def _require_positive_training_examples(training_examples: int) -> int:
+    if training_examples <= 0:
+        raise typer.BadParameter("training examples must be positive")
+    return training_examples
 
 
 def _write_split(

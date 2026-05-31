@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -66,9 +67,32 @@ def test_cli_streaming_training_and_neural_preparation(tmp_path: Path) -> None:
     assert "Wrote 10 training records" in export.output
     assert prepare.exit_code == 0
     assert "Counted 10 streaming training records" in prepare.output
+    assert json.loads(manifest.read_text(encoding="utf-8"))["training"]["batch_size"] == 4
     assert manifest.exists()
     assert move_vocab.exists()
     assert position_vocab.exists()
+
+
+def test_cli_recommends_neural_config() -> None:
+    result = CliRunner().invoke(
+        app,
+        [
+            "recommend-neural-config",
+            "--training-examples",
+            "1000",
+            "--config-profile",
+            "small",
+            "--device",
+            "cpu",
+        ],
+    )
+
+    payload = json.loads(result.output)
+
+    assert result.exit_code == 0
+    assert payload["profile"] == "small"
+    assert payload["training"]["batch_size"] == 16
+    assert payload["lora"]["rank"] == 4
 
 
 def test_cli_model_card_writes_json_and_markdown(tmp_path: Path) -> None:
