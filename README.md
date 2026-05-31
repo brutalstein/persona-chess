@@ -15,6 +15,8 @@ surface.
 ```bash
 pip install persona-chess
 pip install "persona-chess[ml]"
+pip install "persona-chess[evaluation]"
+pip install "persona-chess[formats]"
 ```
 
 For local development:
@@ -25,14 +27,35 @@ pip install -e ".[dev]"
 
 ## Python API
 
+`fit_pgn` trains a lightweight baseline persona immediately. It reads the PGN,
+filters games for the requested player, builds move examples, fits the selected
+built-in model, and returns a ready-to-save `PersonaChess` object. It does not run
+the neural Transformer/LoRA training loop; neural training uses the explicit CLI
+pipeline shown later because it can be long-running and hardware-dependent.
+
 ```python
 from persona_chess import PersonaChess
 
-persona = PersonaChess().fit_pgn("games.pgn", player="Target Player")
+persona = PersonaChess().fit_pgn("games.pgn", player="Target Player", model_type="blend")
 persona.save("target-player.persona.json")
 
 prediction = persona.predict("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
 print(prediction[0].san)
+```
+
+Load a saved persona and use it as an opponent policy:
+
+```python
+import chess
+from persona_chess import PersonaChess
+
+persona = PersonaChess.load("target-player.persona.json")
+board = chess.Board()
+
+while not board.is_game_over():
+    prediction = persona.predict(board.fen(), top_k=1)[0]
+    board.push(chess.Move.from_uci(prediction.move_uci))
+    print(board)
 ```
 
 ## CLI
@@ -78,6 +101,23 @@ persona-chess model-card games.pgn "Target Player" --out target-player.model-car
 persona-chess model-card games.pgn "Target Player" --format markdown --out target-player.model-card.md
 ```
 
+## Persona Evaluation
+
+`persona-report` is the main product-level evaluation command. It keeps the
+project-specific persona metrics in `persona-chess`, while optionally using common
+scientific Python tooling through `persona-chess[evaluation]` when available.
+
+The report includes move-match top-1/top-k, MRR, baseline deltas, phase metrics,
+piece metrics, style similarity, opening similarity, score confidence, optional
+SciPy distribution distances, and optional UCI-engine centipawn/blunder metrics.
+
+```bash
+persona-chess train games.pgn "Target Player" --model-type blend --out target.persona.json
+persona-chess train games.pgn "Target Player" --model-type frequency --out baseline.persona.json
+persona-chess persona-report target.persona.json games.pgn "Target Player" --baseline-model baseline.persona.json --out persona-report.json
+persona-chess persona-report target.persona.json games.pgn "Target Player" --engine-path /path/to/stockfish --out engine-report.json
+```
+
 ## Engine-Guided Persona Moves
 
 `persona-chess` can rerank persona candidates with an external UCI engine such as
@@ -92,6 +132,12 @@ persona-chess engine-move target-player.persona.json --engine-path /path/to/stoc
 
 For large PGN collections, use the streaming commands. They keep the training
 records on disk and only materialize the active batch during neural training.
+Input can be plain `.pgn` or compressed `.pgn.gz`, `.pgn.bz2`, `.pgn.xz`, and
+`.pgn.zst` files. Zstandard support is optional:
+
+```bash
+pip install "persona-chess[formats]"
+```
 
 ```bash
 persona-chess export-training-stream games.pgn "Target Player" --out target-player.train.jsonl
@@ -115,6 +161,14 @@ Neural preparation uses a stable chess-wide position vocabulary by default so ba
 checkpoints and persona adapters can share the same embedding shapes. Use
 `--data-position-vocab` only for isolated experiments that will not initialize from
 another checkpoint.
+
+There are two training modes:
+
+- `PersonaChess().fit_pgn(...)` and `persona-chess train ...` fit a fast baseline
+  persona artifact. This is the quickest way to create a playable opponent.
+- `export-training-stream` plus `prepare-neural-stream` plus
+  `train-neural-stream` runs the neural Transformer/LoRA path. Use this for a
+  base model and stronger per-player adaptation.
 
 ## Neural Auto Configuration
 

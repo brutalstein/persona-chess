@@ -45,6 +45,14 @@ ml = [
   "safetensors>=0.4.0",
   "torch>=2.2.0",
 ]
+evaluation = [
+  "pandas>=2.0.0",
+  "scikit-learn>=1.4.0",
+  "scipy>=1.11.0",
+]
+formats = [
+  "zstandard>=0.22.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/brutalstein/persona-chess"

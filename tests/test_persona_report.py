@@ -25,4 +25,8 @@ def test_persona_quality_report_compares_candidate_with_baseline() -> None:
     assert report.move_matching.examples == len(examples)
     assert 0 <= report.style_similarity <= 1
     assert 0 <= report.opening_similarity <= 1
+    assert report.style_distribution.backend in {"builtin", "scipy"}
+    assert report.confidence.examples == len(examples)
+    assert {metric.name for metric in report.phase_metrics}
+    assert {metric.name for metric in report.piece_metrics}
     assert report.comparison is not None

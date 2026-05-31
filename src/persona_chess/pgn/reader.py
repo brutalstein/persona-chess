@@ -1,11 +1,18 @@
+import bz2
+import gzip
+import lzma
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
+from importlib import import_module
+from io import TextIOWrapper
 from pathlib import Path
+from typing import TextIO
 
 import chess
 import chess.pgn
 
-from persona_chess.exceptions import PgnReadError, PlayerNotFoundError
+from persona_chess.exceptions import OptionalDependencyError, PgnReadError, PlayerNotFoundError
 from persona_chess.pgn.filters import GameFilter, PlayerColor
 
 
@@ -42,7 +49,7 @@ class PlayerGame:
 def iter_pgn_games(path: str | Path) -> Iterator[PgnGame]:
     pgn_path = Path(path)
     try:
-        with pgn_path.open("r", encoding="utf-8", errors="replace") as handle:
+        with open_chess_text(pgn_path) as handle:
             while game := chess.pgn.read_game(handle):
                 yield PgnGame(
                     headers={str(key): str(value) for key, value in game.headers.items()},
@@ -50,6 +57,49 @@ def iter_pgn_games(path: str | Path) -> Iterator[PgnGame]:
                 )
     except OSError as exc:
         raise PgnReadError(f"Unable to read PGN file: {pgn_path}") from exc
+
+
+@contextmanager
+def open_chess_text(path: str | Path) -> Iterator[TextIO]:
+    input_path = Path(path)
+    suffixes = tuple(suffix.casefold() for suffix in input_path.suffixes)
+    if suffixes[-1:] == (".gz",):
+        with gzip.open(input_path, "rt", encoding="utf-8", errors="replace") as handle:
+            yield handle
+        return
+    if suffixes[-1:] == (".bz2",):
+        with bz2.open(input_path, "rt", encoding="utf-8", errors="replace") as handle:
+            yield handle
+        return
+    if suffixes[-1:] in {(".xz",), (".lzma",)}:
+        with lzma.open(input_path, "rt", encoding="utf-8", errors="replace") as handle:
+            yield handle
+        return
+    if suffixes[-1:] == (".zst",):
+        with _open_zstandard_text(input_path) as handle:
+            yield handle
+        return
+    with input_path.open("r", encoding="utf-8", errors="replace") as handle:
+        yield handle
+
+
+@contextmanager
+def _open_zstandard_text(path: Path) -> Iterator[TextIO]:
+    try:
+        zstandard = import_module("zstandard")
+    except ModuleNotFoundError as exc:
+        raise OptionalDependencyError(
+            "Reading .zst PGN files requires the formats extra: "
+            "pip install 'persona-chess[formats]'"
+        ) from exc
+
+    with path.open("rb") as raw:
+        reader = zstandard.ZstdDecompressor().stream_reader(raw)
+        text = TextIOWrapper(reader, encoding="utf-8", errors="replace")
+        try:
+            yield text
+        finally:
+            text.close()
 
 
 def iter_player_games(path: str | Path, game_filter: GameFilter) -> Iterator[PlayerGame]:

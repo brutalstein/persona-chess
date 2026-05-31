@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - Added stable neural position vocabularies and base-checkpoint initialization for persona fine-tuning.
 - Added remote model registries, downloadable checkpoint archives, resumable neural training checkpoints, and best-epoch checkpointing.
 - Added persona evaluation reports with baseline comparison, style similarity, opening similarity, and optional engine quality metrics.
+- Added richer persona evaluation segments, confidence metrics, optional SciPy distribution distances, and compressed PGN readers.
 - Added engine-guided persona reranking with external UCI engines.
 - Added persona model cards with style summaries, data-quality warnings, and model recommendations.
 - Added streaming PGN, JSONL, neural artifact, and policy-batch workflows for large training collections.

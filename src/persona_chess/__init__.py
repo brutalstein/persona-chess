@@ -1,6 +1,7 @@
 from persona_chess._version import __version__
 from persona_chess.dataset.records import MoveExample
 from persona_chess.evaluation.metrics import MoveMatchMetrics
+from persona_chess.evaluation.persona_report import PersonaEvaluationReport
 from persona_chess.facade import PersonaChess
 from persona_chess.model_card import PersonaModelCard, build_model_card
 from persona_chess.models.blend import BlendPersonaModel
@@ -61,6 +62,7 @@ __all__ = [
     "PolicySample",
     "OpeningBookPersonaModel",
     "PersonaChess",
+    "PersonaEvaluationReport",
     "PersonaModelCard",
     "PersonaProfile",
     "PhasePersonaModel",
