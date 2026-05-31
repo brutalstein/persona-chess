@@ -16,22 +16,20 @@ def test_persona_train_builds_neural_checkpoint(tmp_path: Path) -> None:
     result = persona.train(
         FIXTURE,
         player="Target Player",
-        checkpoint_dir=tmp_path / "checkpoint",
+        output_dir=tmp_path,
         use_lora=False,
         device="cpu",
         epochs=1,
         batch_size=4,
         learning_rate=1e-3,
-        warmup_ratio=0.0,
+        show_progress=False,
         mixed_precision="off",
-        d_model=32,
-        n_layers=1,
-        n_heads=4,
-        dropout=0.0,
     )
 
     assert persona.neural_checkpoint_dir == result.checkpoint_dir
+    assert result.checkpoint_dir.parent == tmp_path
     assert result.model_state_path.exists()
+    assert result.model_state_path.name == "model.pt"
     assert result.training_examples > 0
     assert result.training_result.optimizer_steps > 0
 
@@ -41,31 +39,25 @@ def test_persona_train_builds_neural_checkpoint(tmp_path: Path) -> None:
     assert all(prediction.reason == "neural_policy" for prediction in predictions)
 
 
-def test_persona_train_records_uses_streaming_jsonl(tmp_path: Path) -> None:
+def test_persona_train_can_stream_from_pgn(tmp_path: Path) -> None:
     if not is_torch_available():
         pytest.skip("PyTorch is not installed in this environment.")
 
     persona = PersonaChess()
-    records = tmp_path / "target.records.jsonl"
-    written = persona.export_training_records(FIXTURE, records, player="Target Player")
-
-    result = persona.train_records(
-        records,
+    result = persona.train(
+        FIXTURE,
         player="Target Player",
-        checkpoint_dir=tmp_path / "stream-checkpoint",
+        output_dir=tmp_path,
+        streaming=True,
         use_lora=False,
         device="cpu",
         epochs=1,
         batch_size=4,
         learning_rate=1e-3,
-        warmup_ratio=0.0,
+        show_progress=False,
         mixed_precision="off",
-        d_model=32,
-        n_layers=1,
-        n_heads=4,
-        dropout=0.0,
     )
 
-    assert written == result.training_examples
-    assert result.training_records == records
+    assert result.training_records is not None
+    assert result.training_records.exists()
     assert result.model_state_path.exists()

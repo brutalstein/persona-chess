@@ -19,6 +19,11 @@ pip install "persona-chess[evaluation]"
 pip install "persona-chess[formats]"
 ```
 
+CUDA is handled through PyTorch. `persona-chess` uses CUDA automatically when the
+installed PyTorch build can see a compatible GPU; otherwise it safely trains on
+CPU. If CUDA is requested but unavailable, install the PyTorch wheel that matches
+your NVIDIA driver/CUDA runtime.
+
 For local development:
 
 ```bash
@@ -41,10 +46,10 @@ prediction = persona.predict("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq
 print(prediction[0].san)
 ```
 
-`train` runs the neural Transformer/LoRA path from Python code and writes a
-checkpoint directory. Hardware-aware defaults are selected automatically; users
-can override epochs, batch size, learning rate, model size, LoRA rank, and device
-when they need control.
+`train` is the main neural path. It trains a Transformer/LoRA persona from Python
+code, creates a checkpoint folder automatically, writes `model.pt` inside that
+folder, and prints progress while training. Hardware-aware defaults are selected
+automatically; override only the basics when needed.
 
 ```python
 from persona_chess import PersonaChess
@@ -53,49 +58,29 @@ persona = PersonaChess()
 result = persona.train(
     "games.pgn",
     player="Target Player",
-    checkpoint_dir="checkpoints/target-player",
-    use_lora=True,
-    device="cuda",
-    epochs=3,
-    batch_size=32,
+    epochs=3,          # optional
+    batch_size=32,     # optional
+    device="cuda",     # optional; auto uses CUDA when PyTorch can see it
 )
 
-print(result.training_result.validation_accuracy)
+print(result.checkpoint_dir)
+print(result.model_state_path)  # .../model.pt
+
 move = persona.predict_neural("startpos", top_k=1)[0]
 print(move.move_uci, move.san)
 ```
 
-For large PGNs, keep the Python API but switch on streaming. This writes
-training records to disk and trains from those records batch by batch instead of
-keeping the whole dataset in memory:
+For large PGNs, keep the same API and switch on streaming. This writes training
+records under the checkpoint folder and trains batch by batch instead of keeping
+the whole dataset in memory:
 
 ```python
 persona = PersonaChess()
 result = persona.train(
     "large-games.pgn.zst",
     player="Target Player",
-    checkpoint_dir="checkpoints/target-player",
     streaming=True,
-    records_dir="runs/target-player-records",
     validation_ratio=0.1,
-)
-```
-
-You can also manage the record files explicitly from code:
-
-```python
-persona = PersonaChess()
-persona.export_training_records(
-    "large-games.pgn",
-    "target-player.records.jsonl",
-    player="Target Player",
-)
-persona.train_records(
-    "target-player.records.jsonl",
-    player="Target Player",
-    checkpoint_dir="checkpoints/target-player",
-    init_checkpoint="checkpoints/base",
-    use_lora=True,
 )
 ```
 

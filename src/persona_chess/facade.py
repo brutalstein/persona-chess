@@ -1,3 +1,5 @@
+import re
+from datetime import datetime
 from pathlib import Path
 
 from persona_chess.chess.legal import board_from_fen
@@ -11,12 +13,9 @@ from persona_chess.neural.autotune import NeuralConfigProfile
 from persona_chess.neural.config import MixedPrecisionMode
 from persona_chess.neural.inference import predict_policy_moves_from_checkpoint
 from persona_chess.neural.session import (
-    NeuralRecordsTrainRequest,
     NeuralTrainRequest,
     NeuralTrainResult,
     train_neural_persona,
-    train_neural_records,
-    write_pgn_training_records,
 )
 from persona_chess.pgn.filters import GameFilter, PlayerColor
 from persona_chess.profile.builder import build_profile
@@ -66,167 +65,51 @@ class PersonaChess:
         path: str | Path,
         *,
         player: str,
-        checkpoint_dir: str | Path,
-        base_model: str = "persona-chess/base-small",
+        checkpoint_dir: str | Path | None = None,
+        output_dir: str | Path = "checkpoints",
         init_checkpoint: str | Path | None = None,
-        resume_checkpoint: str | Path | None = None,
-        model_registry: str | Path | None = None,
-        model_cache_dir: str | Path | None = None,
         color: PlayerColor = "both",
         max_games: int | None = None,
         skip_first_plies: int = 0,
         use_lora: bool = True,
         device: str | None = None,
         config_profile: NeuralConfigProfile = "auto",
-        standard_position_vocabulary: bool = True,
         validation_ratio: float = 0.1,
-        streaming: bool = False,
-        records_dir: str | Path | None = None,
-        save_best: bool = True,
-        checkpoint_every_epoch: bool = False,
+        streaming: bool | None = None,
+        show_progress: bool = True,
         epochs: int | None = None,
         batch_size: int | None = None,
         learning_rate: float | None = None,
-        warmup_ratio: float | None = None,
-        max_grad_norm: float | None = None,
         mixed_precision: MixedPrecisionMode | None = None,
-        gradient_accumulation_steps: int | None = None,
-        d_model: int | None = None,
-        n_layers: int | None = None,
-        n_heads: int | None = None,
-        dropout: float | None = None,
-        lora_rank: int | None = None,
-        lora_alpha: int | None = None,
-        lora_dropout: float | None = None,
     ) -> NeuralTrainResult:
+        resolved_checkpoint_dir = (
+            Path(checkpoint_dir)
+            if checkpoint_dir is not None
+            else _default_checkpoint_dir(output_dir, player=player)
+        )
         result = train_neural_persona(
             NeuralTrainRequest(
                 pgn=path,
                 player=player,
-                checkpoint_dir=checkpoint_dir,
-                base_model=base_model,
+                checkpoint_dir=resolved_checkpoint_dir,
                 init_checkpoint=init_checkpoint,
-                resume_checkpoint=resume_checkpoint,
-                model_registry=model_registry,
-                model_cache_dir=model_cache_dir,
                 color=color,
                 max_games=max_games,
                 skip_first_plies=skip_first_plies,
                 use_lora=use_lora,
                 device=device,
                 config_profile=config_profile,
-                standard_position_vocabulary=standard_position_vocabulary,
                 validation_ratio=validation_ratio,
-                streaming=streaming,
-                records_dir=records_dir,
-                save_best=save_best,
-                checkpoint_every_epoch=checkpoint_every_epoch,
+                streaming=_should_stream(path) if streaming is None else streaming,
+                show_progress=show_progress,
                 epochs=epochs,
                 batch_size=batch_size,
                 learning_rate=learning_rate,
-                warmup_ratio=warmup_ratio,
-                max_grad_norm=max_grad_norm,
                 mixed_precision=mixed_precision,
-                gradient_accumulation_steps=gradient_accumulation_steps,
-                d_model=d_model,
-                n_layers=n_layers,
-                n_heads=n_heads,
-                dropout=dropout,
-                lora_rank=lora_rank,
-                lora_alpha=lora_alpha,
-                lora_dropout=lora_dropout,
             )
         )
         self.neural_checkpoint_dir = result.checkpoint_dir
         return result
-
-    def train_records(
-        self,
-        training_records: str | Path,
-        *,
-        player: str,
-        checkpoint_dir: str | Path,
-        validation_records: str | Path | None = None,
-        base_model: str = "persona-chess/base-small",
-        init_checkpoint: str | Path | None = None,
-        resume_checkpoint: str | Path | None = None,
-        model_registry: str | Path | None = None,
-        model_cache_dir: str | Path | None = None,
-        use_lora: bool = True,
-        device: str | None = None,
-        config_profile: NeuralConfigProfile = "auto",
-        standard_position_vocabulary: bool = True,
-        save_best: bool = True,
-        checkpoint_every_epoch: bool = False,
-        epochs: int | None = None,
-        batch_size: int | None = None,
-        learning_rate: float | None = None,
-        warmup_ratio: float | None = None,
-        max_grad_norm: float | None = None,
-        mixed_precision: MixedPrecisionMode | None = None,
-        gradient_accumulation_steps: int | None = None,
-        d_model: int | None = None,
-        n_layers: int | None = None,
-        n_heads: int | None = None,
-        dropout: float | None = None,
-        lora_rank: int | None = None,
-        lora_alpha: int | None = None,
-        lora_dropout: float | None = None,
-    ) -> NeuralTrainResult:
-        result = train_neural_records(
-            NeuralRecordsTrainRequest(
-                training_records=training_records,
-                validation_records=validation_records,
-                player=player,
-                checkpoint_dir=checkpoint_dir,
-                base_model=base_model,
-                init_checkpoint=init_checkpoint,
-                resume_checkpoint=resume_checkpoint,
-                model_registry=model_registry,
-                model_cache_dir=model_cache_dir,
-                use_lora=use_lora,
-                device=device,
-                config_profile=config_profile,
-                standard_position_vocabulary=standard_position_vocabulary,
-                save_best=save_best,
-                checkpoint_every_epoch=checkpoint_every_epoch,
-                epochs=epochs,
-                batch_size=batch_size,
-                learning_rate=learning_rate,
-                warmup_ratio=warmup_ratio,
-                max_grad_norm=max_grad_norm,
-                mixed_precision=mixed_precision,
-                gradient_accumulation_steps=gradient_accumulation_steps,
-                d_model=d_model,
-                n_layers=n_layers,
-                n_heads=n_heads,
-                dropout=dropout,
-                lora_rank=lora_rank,
-                lora_alpha=lora_alpha,
-                lora_dropout=lora_dropout,
-            )
-        )
-        self.neural_checkpoint_dir = result.checkpoint_dir
-        return result
-
-    def export_training_records(
-        self,
-        path: str | Path,
-        out: str | Path,
-        *,
-        player: str,
-        color: PlayerColor = "both",
-        max_games: int | None = None,
-        skip_first_plies: int = 0,
-    ) -> int:
-        return write_pgn_training_records(
-            path,
-            out,
-            player=player,
-            color=color,
-            max_games=max_games,
-            skip_first_plies=skip_first_plies,
-        )
 
     def predict(self, fen: str, *, top_k: int = 1) -> list[MovePrediction]:
         return self.require_model().predict(board_from_fen(fen), top_k=top_k)
@@ -278,3 +161,21 @@ class PersonaChess:
         persona.profile = artifact.profile
         persona.model = load_model(artifact.model_type, artifact.payload)
         return persona
+
+
+def _default_checkpoint_dir(output_dir: str | Path, *, player: str) -> Path:
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    return Path(output_dir) / f"{_slugify(player)}-{timestamp}"
+
+
+def _slugify(value: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", value.strip().lower()).strip("-")
+    return slug or "persona"
+
+
+def _should_stream(path: str | Path) -> bool:
+    input_path = Path(path)
+    try:
+        return input_path.is_file() and input_path.stat().st_size >= 256 * 1024 * 1024
+    except OSError:
+        return False

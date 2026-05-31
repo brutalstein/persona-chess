@@ -77,6 +77,7 @@ from persona_chess.neural.torch_backend import (
 from persona_chess.neural.trainer import (
     PolicyEvaluationResult,
     TrainingEpochResult,
+    TrainingProgressUpdate,
     TrainingResult,
     evaluate_policy_model,
     train_policy_model,
@@ -117,6 +118,7 @@ __all__ = [
     "StreamingNeuralArtifacts",
     "TrainingResult",
     "TrainingEpochResult",
+    "TrainingProgressUpdate",
     "TransformerPolicyConfig",
     "apply_lora_adapter",
     "build_policy_sample",

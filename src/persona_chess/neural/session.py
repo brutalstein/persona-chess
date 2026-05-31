@@ -1,6 +1,8 @@
 import hashlib
 import json
 import random
+import sys
+import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,6 +37,7 @@ from persona_chess.neural.samples import (
 from persona_chess.neural.streaming import prepare_streaming_neural_artifacts
 from persona_chess.neural.trainer import (
     TrainingEpochResult,
+    TrainingProgressUpdate,
     TrainingResult,
     train_policy_model,
     train_policy_model_streaming,
@@ -74,6 +77,7 @@ class NeuralTrainRequest:
     records_dir: str | Path | None = None
     save_best: bool = True
     checkpoint_every_epoch: bool = False
+    show_progress: bool = True
     epochs: int | None = None
     batch_size: int | None = None
     learning_rate: float | None = None
@@ -107,6 +111,7 @@ class NeuralRecordsTrainRequest:
     standard_position_vocabulary: bool = True
     save_best: bool = True
     checkpoint_every_epoch: bool = False
+    show_progress: bool = True
     epochs: int | None = None
     batch_size: int | None = None
     learning_rate: float | None = None
@@ -251,6 +256,69 @@ class _EpochCheckpointCallback:
         return directory
 
 
+class _ConsoleTrainingProgress:
+    def __init__(
+        self,
+        *,
+        player: str,
+        checkpoint_dir: Path,
+        auto_config: NeuralAutoConfig,
+        training_examples: int,
+        validation_examples: int,
+        use_lora: bool,
+        stream: Any | None = None,
+    ) -> None:
+        self.stream = stream or sys.stderr
+        self.last_rendered_at = 0.0
+        self.finished = False
+        hardware = auto_config.hardware
+        device_detail = hardware.device_type
+        if hardware.cuda_available and hardware.cuda_device_name:
+            device_detail = (
+                f"cuda ({hardware.cuda_device_name}, {hardware.cuda_memory_gb or 0:.1f} GB)"
+            )
+        print(
+            "PersonaChess training: "
+            f"player={player!r}, checkpoint={checkpoint_dir}, "
+            f"device={device_detail}, epochs={auto_config.training.epochs}, "
+            f"batch_size={auto_config.training.batch_size}, "
+            f"grad_accum={auto_config.training.gradient_accumulation_steps}, "
+            f"lora={'on' if use_lora else 'off'}, "
+            f"train={training_examples}, validation={validation_examples}",
+            file=self.stream,
+            flush=True,
+        )
+
+    def __call__(self, update: TrainingProgressUpdate) -> None:
+        now = time.monotonic()
+        is_last = update.total_steps is not None and update.global_step >= update.total_steps
+        if not is_last and now - self.last_rendered_at < 1.0:
+            return
+
+        self.last_rendered_at = now
+        batch_text = (
+            f"{update.batch}/{update.total_batches}"
+            if update.total_batches is not None
+            else str(update.batch)
+        )
+        step_text = (
+            f"{update.global_step}/{update.total_steps}"
+            if update.total_steps is not None
+            else str(update.global_step)
+        )
+        eta_text = _format_duration(update.eta_seconds)
+        line = (
+            f"\rEpoch {update.epoch}/{update.total_epochs} | "
+            f"batch {batch_text} | step {step_text} | "
+            f"loss {update.loss:.4f} | "
+            f"elapsed {_format_duration(update.elapsed_seconds)} | "
+            f"eta {eta_text} | "
+            f"device {update.device} | precision {update.mixed_precision}"
+        )
+        print(line, end="\n" if is_last else "", file=self.stream, flush=True)
+        self.finished = is_last
+
+
 def train_neural_persona(request: NeuralTrainRequest) -> NeuralTrainResult:
     if request.streaming:
         records_dir = (
@@ -279,6 +347,7 @@ def train_neural_persona(request: NeuralTrainRequest) -> NeuralTrainResult:
                 standard_position_vocabulary=request.standard_position_vocabulary,
                 save_best=request.save_best,
                 checkpoint_every_epoch=request.checkpoint_every_epoch,
+                show_progress=request.show_progress,
                 epochs=request.epochs,
                 batch_size=request.batch_size,
                 learning_rate=request.learning_rate,
@@ -362,6 +431,7 @@ def train_neural_records(request: NeuralRecordsTrainRequest) -> NeuralTrainResul
     model, result, callback = _run_streaming_training(
         train_path,
         validation_path=validation_path,
+        validation_examples=validation_examples,
         request=request,
         manifest=manifest,
         auto_config=auto_config,
@@ -504,6 +574,15 @@ def _train_neural_records_in_memory(
         save_best=request.save_best,
         checkpoint_every_epoch=request.checkpoint_every_epoch,
     )
+    progress_callback = _build_progress_callback(
+        show_progress=request.show_progress,
+        player=request.player,
+        checkpoint_dir=Path(request.checkpoint_dir),
+        auto_config=auto_config,
+        training_examples=len(train_records),
+        validation_examples=len(validation_records),
+        use_lora=request.use_lora,
+    )
     model, result = train_policy_model(
         batches,
         transformer=auto_config.transformer,
@@ -520,6 +599,7 @@ def _train_neural_records_in_memory(
         scaler_state_dict=resume_state.scaler_state_dict,
         start_epoch=resume_state.next_epoch,
         epoch_callback=callback,
+        progress_callback=progress_callback,
     )
     checkpoint_dir = Path(request.checkpoint_dir)
     checkpoint = save_torch_policy_checkpoint(
@@ -551,6 +631,7 @@ def _run_streaming_training(
     train_path: Path,
     *,
     validation_path: Path | None,
+    validation_examples: int,
     request: NeuralRecordsTrainRequest,
     manifest: AdapterManifest,
     auto_config: NeuralAutoConfig,
@@ -599,6 +680,15 @@ def _run_streaming_training(
                 batch_size=auto_config.training.batch_size,
             )
 
+    progress_callback = _build_progress_callback(
+        show_progress=request.show_progress,
+        player=request.player,
+        checkpoint_dir=Path(request.checkpoint_dir),
+        auto_config=auto_config,
+        training_examples=manifest.training_examples,
+        validation_examples=validation_examples,
+        use_lora=request.use_lora,
+    )
     model, result = train_policy_model_streaming(
         batch_factory,
         transformer=auto_config.transformer,
@@ -618,6 +708,7 @@ def _run_streaming_training(
             manifest.training_examples, auto_config.training.batch_size
         ),
         epoch_callback=callback,
+        progress_callback=progress_callback,
     )
     return model, result, callback
 
@@ -895,6 +986,28 @@ def _build_epoch_checkpoint_callback(
     )
 
 
+def _build_progress_callback(
+    *,
+    show_progress: bool,
+    player: str,
+    checkpoint_dir: Path,
+    auto_config: NeuralAutoConfig,
+    training_examples: int,
+    validation_examples: int,
+    use_lora: bool,
+) -> Callable[[TrainingProgressUpdate], None] | None:
+    if not show_progress:
+        return None
+    return _ConsoleTrainingProgress(
+        player=player,
+        checkpoint_dir=checkpoint_dir,
+        auto_config=auto_config,
+        training_examples=training_examples,
+        validation_examples=validation_examples,
+        use_lora=use_lora,
+    )
+
+
 def _samples_for_records(
     records: Iterable[TrainingRecord],
     *,
@@ -1029,6 +1142,17 @@ def _neural_override_names(
 
 def _count_batches(examples: int, batch_size: int) -> int:
     return max(1, (examples + batch_size - 1) // batch_size)
+
+
+def _format_duration(seconds: float | None) -> str:
+    if seconds is None:
+        return "unknown"
+    whole_seconds = max(0, int(round(seconds)))
+    hours, remainder = divmod(whole_seconds, 3600)
+    minutes, remaining_seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours:d}:{minutes:02d}:{remaining_seconds:02d}"
+    return f"{minutes:02d}:{remaining_seconds:02d}"
 
 
 def _default_records_dir(checkpoint_dir: str | Path) -> Path:

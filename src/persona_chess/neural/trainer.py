@@ -1,4 +1,5 @@
 import math
+import time
 from collections.abc import Callable, Iterable
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass
@@ -87,6 +88,24 @@ class TrainingResult:
         return cls(**payload)
 
 
+@dataclass(frozen=True, slots=True)
+class TrainingProgressUpdate:
+    epoch: int
+    total_epochs: int
+    batch: int
+    total_batches: int | None
+    global_step: int
+    total_steps: int | None
+    loss: float
+    elapsed_seconds: float
+    eta_seconds: float | None
+    device: str
+    mixed_precision: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 def train_policy_model(
     batches: list[PolicyBatch],
     *,
@@ -104,6 +123,7 @@ def train_policy_model(
     scaler_state_dict: dict[str, Any] | None = None,
     start_epoch: int = 1,
     epoch_callback: Any | None = None,
+    progress_callback: Callable[[TrainingProgressUpdate], None] | None = None,
 ) -> tuple[Any, TrainingResult]:
     return train_policy_model_streaming(
         lambda: iter(batches),
@@ -124,6 +144,7 @@ def train_policy_model(
         if validation_batches is not None
         else None,
         training_batches=len(batches),
+        progress_callback=progress_callback,
     )
 
 
@@ -145,6 +166,7 @@ def train_policy_model_streaming(
     validation_batch_factory: Callable[[], Iterable[PolicyBatch]] | None = None,
     training_batches: int | None = None,
     epoch_callback: Any | None = None,
+    progress_callback: Callable[[TrainingProgressUpdate], None] | None = None,
 ) -> tuple[Any, TrainingResult]:
     torch = require_torch()
     torch.manual_seed(training.seed)
@@ -201,13 +223,17 @@ def train_policy_model_streaming(
     model.train()
     optimizer.zero_grad(set_to_none=True)
     final_epoch = start_epoch + training.epochs - 1
+    training_started_at = time.monotonic()
+    total_steps = training_batches * training.epochs if training_batches is not None else None
     for epoch in range(start_epoch, final_epoch + 1):
         accumulated = 0
         epoch_loss_sum = 0.0
         epoch_examples = 0
+        batch_index = 0
         for batch in batch_factory():
             if batch.size == 0:
                 continue
+            batch_index += 1
             tensors = policy_batch_to_tensors(batch, device=str(active_device))
             with _autocast_context(torch, precision_plan, active_device):
                 logits = model(tensors["input_ids"], tensors["attention_mask"])
@@ -240,6 +266,33 @@ def train_policy_model_streaming(
             epoch_loss_sum += final_loss * batch.size
             epoch_examples += batch.size
             steps += 1
+            if progress_callback is not None:
+                elapsed_seconds = time.monotonic() - training_started_at
+                progress_units = (
+                    ((epoch - start_epoch) * training_batches) + batch_index
+                    if training_batches is not None
+                    else steps
+                )
+                eta_seconds = (
+                    _estimate_eta(elapsed_seconds, progress_units, total_steps)
+                    if total_steps is not None
+                    else None
+                )
+                progress_callback(
+                    TrainingProgressUpdate(
+                        epoch=epoch - start_epoch + 1,
+                        total_epochs=training.epochs,
+                        batch=batch_index,
+                        total_batches=training_batches,
+                        global_step=steps,
+                        total_steps=total_steps,
+                        loss=final_loss,
+                        elapsed_seconds=elapsed_seconds,
+                        eta_seconds=eta_seconds,
+                        device=str(active_device),
+                        mixed_precision=precision_plan.label,
+                    )
+                )
         if accumulated:
             _optimizer_step(
                 torch,
@@ -369,7 +422,14 @@ class _PrecisionPlan:
 
 def _resolve_device(torch: Any, device: str | None) -> Any:
     if device:
-        return torch.device(device)
+        resolved_device = torch.device(device)
+        if resolved_device.type == "cuda" and not torch.cuda.is_available():
+            raise RuntimeError(
+                "CUDA was requested, but this PyTorch installation cannot use CUDA. "
+                "Install a PyTorch build that matches your NVIDIA driver/CUDA runtime, "
+                "or train with device='cpu'."
+            )
+        return resolved_device
     if torch.cuda.is_available():
         return torch.device("cuda")
     return torch.device("cpu")
@@ -410,6 +470,17 @@ def _estimate_optimizer_steps(
         return None
     total_batches = training_batches * training.epochs
     return max(1, math.ceil(total_batches / training.gradient_accumulation_steps))
+
+
+def _estimate_eta(
+    elapsed_seconds: float,
+    progress_units: int,
+    total_units: int | None,
+) -> float | None:
+    if total_units is None or progress_units <= 0:
+        return None
+    remaining_units = max(0, total_units - progress_units)
+    return (elapsed_seconds / progress_units) * remaining_units
 
 
 def _build_scheduler(
