@@ -10,6 +10,7 @@ from persona_chess.models.opening import OpeningBookPersonaModel
 from persona_chess.models.phase import PhasePersonaModel
 from persona_chess.models.types import MovePrediction
 from persona_chess.neural import (
+    DEFAULT_BASE_MODEL,
     AdapterManifest,
     HardwareProfile,
     LoraConfig,
@@ -59,6 +60,7 @@ __all__ = [
     "ModelDownloadResult",
     "ModelRegistry",
     "AdapterManifest",
+    "DEFAULT_BASE_MODEL",
     "LoraConfig",
     "MixedPrecisionMode",
     "NeuralAutoConfig",

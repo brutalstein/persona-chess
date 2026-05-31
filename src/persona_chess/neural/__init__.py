@@ -56,6 +56,7 @@ from persona_chess.neural.samples import (
     iter_policy_samples,
 )
 from persona_chess.neural.session import (
+    DEFAULT_BASE_MODEL,
     NeuralRecordsTrainRequest,
     NeuralTrainRequest,
     NeuralTrainResult,
@@ -93,6 +94,7 @@ __all__ = [
     "NEURAL_CHECKPOINT_SCHEMA",
     "POSITION_VOCABULARY_SCHEMA",
     "AdapterManifest",
+    "DEFAULT_BASE_MODEL",
     "LoraConfig",
     "LoraAdapterSummary",
     "HardwareProfile",

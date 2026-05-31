@@ -53,6 +53,7 @@ from persona_chess.training import (
 )
 
 T = TypeVar("T")
+DEFAULT_BASE_MODEL = "malcouffe/chessgpt"
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +61,7 @@ class NeuralTrainRequest:
     pgn: str | Path
     player: str
     checkpoint_dir: str | Path
-    base_model: str = "persona-chess/base-small"
+    base_model: str = DEFAULT_BASE_MODEL
     init_checkpoint: str | Path | None = None
     resume_checkpoint: str | Path | None = None
     model_registry: str | Path | None = None
@@ -100,7 +101,7 @@ class NeuralRecordsTrainRequest:
     player: str
     checkpoint_dir: str | Path
     validation_records: str | Path | None = None
-    base_model: str = "persona-chess/base-small"
+    base_model: str = DEFAULT_BASE_MODEL
     init_checkpoint: str | Path | None = None
     resume_checkpoint: str | Path | None = None
     model_registry: str | Path | None = None

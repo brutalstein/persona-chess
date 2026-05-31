@@ -13,6 +13,7 @@ from persona_chess.neural.autotune import NeuralConfigProfile
 from persona_chess.neural.config import MixedPrecisionMode
 from persona_chess.neural.inference import predict_policy_moves_from_checkpoint
 from persona_chess.neural.session import (
+    DEFAULT_BASE_MODEL,
     NeuralTrainRequest,
     NeuralTrainResult,
     train_neural_persona,
@@ -67,6 +68,7 @@ class PersonaChess:
         player: str,
         checkpoint_dir: str | Path | None = None,
         output_dir: str | Path = "checkpoints",
+        base_model: str = DEFAULT_BASE_MODEL,
         init_checkpoint: str | Path | None = None,
         color: PlayerColor = "both",
         max_games: int | None = None,
@@ -92,6 +94,7 @@ class PersonaChess:
                 pgn=path,
                 player=player,
                 checkpoint_dir=resolved_checkpoint_dir,
+                base_model=base_model,
                 init_checkpoint=init_checkpoint,
                 color=color,
                 max_games=max_games,
@@ -136,6 +139,16 @@ class PersonaChess:
             device=device,
         )
 
+    def move(
+        self,
+        fen: str,
+        *,
+        device: str | None = None,
+    ) -> MovePrediction:
+        if self.neural_checkpoint_dir is not None:
+            return self.predict_neural(fen, top_k=1, device=device)[0]
+        return self.predict(fen, top_k=1)[0]
+
     def save(self, path: str | Path) -> None:
         if self.profile is None:
             raise ModelNotFittedError("Fit a persona before saving it.")
@@ -160,6 +173,12 @@ class PersonaChess:
         persona = cls()
         persona.profile = artifact.profile
         persona.model = load_model(artifact.model_type, artifact.payload)
+        return persona
+
+    @classmethod
+    def load_neural(cls, checkpoint_dir: str | Path) -> "PersonaChess":
+        persona = cls()
+        persona.neural_checkpoint_dir = Path(checkpoint_dir)
         return persona
 
 

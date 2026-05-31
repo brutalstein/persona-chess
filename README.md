@@ -4,11 +4,9 @@
 files. The goal is not to find the strongest move. The goal is to predict how a
 specific player is likely to move.
 
-The current foundation includes PGN ingestion, player filtering, versioned move
-datasets, game-level train/test splits, profile reports, baseline persona models,
-JSON artifacts, and a CLI. The model layer is intentionally modular so a
-chess-native Transformer + LoRA backend can be added without changing the product
-surface.
+The current foundation includes PGN ingestion, player filtering, neural persona
+training, legal move masking, checkpoint inference, baseline comparison models,
+profile reports, JSON artifacts, and a CLI.
 
 ## Install
 
@@ -32,30 +30,12 @@ pip install -e ".[dev]"
 
 ## Python API
 
-`fit_pgn` trains a lightweight baseline persona immediately. It reads the PGN,
-filters games for the requested player, builds move examples, fits the selected
-built-in model, and returns a ready-to-save `PersonaChess` object.
+The normal workflow is train once, then load the checkpoint as a bot.
 
 ```python
 from persona_chess import PersonaChess
 
-persona = PersonaChess().fit_pgn("games.pgn", player="Target Player", model_type="blend")
-persona.save("target-player.persona.json")
-
-prediction = persona.predict("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
-print(prediction[0].san)
-```
-
-`train` is the main neural path. It trains a Transformer/LoRA persona from Python
-code, creates a checkpoint folder automatically, writes `model.pt` inside that
-folder, and prints progress while training. Hardware-aware defaults are selected
-automatically; override only the basics when needed.
-
-```python
-from persona_chess import PersonaChess
-
-persona = PersonaChess()
-result = persona.train(
+result = PersonaChess().train(
     "games.pgn",
     player="Target Player",
     epochs=3,          # optional
@@ -66,9 +46,17 @@ result = persona.train(
 print(result.checkpoint_dir)
 print(result.model_state_path)  # .../model.pt
 
-move = persona.predict_neural("startpos", top_k=1)[0]
+bot = PersonaChess.load_neural(result.checkpoint_dir)
+move = bot.move("startpos")
 print(move.move_uci, move.san)
 ```
+
+By default, persona checkpoints are tagged against `malcouffe/chessgpt`, a
+432M-parameter UCI-move ChessGPT model trained on Lichess move sequences under
+Apache-2.0. This is the selected upstream base model direction for
+`persona-chess` because it treats chess as move language instead of engine
+evaluation. The native checkpoint trainer remains compatible with local
+`init_checkpoint` files while the Hugging Face base adapter path is hardened.
 
 For large PGNs, keep the same API and switch on streaming. This writes training
 records under the checkpoint folder and trains batch by batch instead of keeping
@@ -84,19 +72,13 @@ result = persona.train(
 )
 ```
 
-Load a saved persona and use it as an opponent policy:
+Baseline personas are still available for quick comparison:
 
 ```python
-import chess
 from persona_chess import PersonaChess
 
-persona = PersonaChess.load("target-player.persona.json")
-board = chess.Board()
-
-while not board.is_game_over():
-    prediction = persona.predict(board.fen(), top_k=1)[0]
-    board.push(chess.Move.from_uci(prediction.move_uci))
-    print(board)
+persona = PersonaChess().fit_pgn("games.pgn", player="Target Player", model_type="blend")
+persona.save("target-player.persona.json")
 ```
 
 ## CLI

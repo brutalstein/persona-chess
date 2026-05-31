@@ -30,11 +30,15 @@ def test_persona_train_builds_neural_checkpoint(tmp_path: Path) -> None:
     assert result.checkpoint_dir.parent == tmp_path
     assert result.model_state_path.exists()
     assert result.model_state_path.name == "model.pt"
+    assert result.adapter_manifest.base_model == "malcouffe/chessgpt"
     assert result.training_examples > 0
     assert result.training_result.optimizer_steps > 0
 
-    predictions = persona.predict_neural("startpos", top_k=2, device="cpu")
+    bot = PersonaChess.load_neural(result.checkpoint_dir)
+    move = bot.move("startpos", device="cpu")
+    predictions = bot.predict_neural("startpos", top_k=2, device="cpu")
 
+    assert move.reason == "neural_policy"
     assert predictions
     assert all(prediction.reason == "neural_policy" for prediction in predictions)
 
