@@ -1,4 +1,7 @@
+import hashlib
 import json
+import math
+import random
 from collections.abc import Iterable
 from dataclasses import replace
 from pathlib import Path
@@ -10,7 +13,11 @@ import typer
 from persona_chess import PersonaChess
 from persona_chess.chess.legal import board_from_fen
 from persona_chess.dataset import SplitConfig, split_examples
-from persona_chess.dataset.builder import build_move_examples, iter_move_examples
+from persona_chess.dataset.builder import (
+    build_move_examples,
+    iter_all_move_examples,
+    iter_move_examples,
+)
 from persona_chess.dataset.jsonl import write_examples_jsonl
 from persona_chess.dataset.records import MoveExample
 from persona_chess.engines import EngineGuidanceConfig, predict_engine_guided_moves
@@ -22,6 +29,7 @@ from persona_chess.models.registry import supported_model_types
 from persona_chess.neural import (
     AdapterManifest,
     LoraConfig,
+    MixedPrecisionMode,
     MoveVocabulary,
     NeuralAutoConfig,
     NeuralConfigProfile,
@@ -45,6 +53,7 @@ from persona_chess.neural import (
 from persona_chess.pgn.filters import GameFilter, PlayerColor
 from persona_chess.profile.builder import build_profile
 from persona_chess.training import (
+    TrainingRecord,
     build_training_records,
     iter_training_records,
     read_training_records_jsonl,
@@ -184,6 +193,86 @@ def export_training_stream(
     typer.echo(f"Wrote {written} training records: {out}")
 
 
+@app.command("export-base-training-stream")
+def export_base_training_stream(
+    pgn: Annotated[Path, typer.Argument(help="Path to a PGN file.")],
+    out: Annotated[Path, typer.Option(help="Training JSONL output path.")],
+    max_games: Annotated[
+        int | None,
+        typer.Option(help="Limit the number of games."),
+    ] = None,
+    max_examples: Annotated[
+        int | None,
+        typer.Option(help="Limit the number of exported positions."),
+    ] = None,
+    skip_first_plies: Annotated[
+        int,
+        typer.Option(help="Skip early plies when exporting records."),
+    ] = 0,
+    include_variants: Annotated[
+        bool,
+        typer.Option(help="Include non-standard chess variants."),
+    ] = False,
+) -> None:
+    examples = iter_all_move_examples(
+        pgn,
+        skip_first_plies=skip_first_plies,
+        max_games=max_games,
+        max_examples=max_examples,
+        include_variants=include_variants,
+    )
+    written = write_training_records_jsonl(out, iter_training_records(examples))
+    typer.echo(f"Wrote {written} base training records: {out}")
+
+
+@app.command("split-training-stream")
+def split_training_stream(
+    training_records: Annotated[
+        Path,
+        typer.Argument(help="Training JSONL path."),
+    ],
+    train_out: Annotated[Path, typer.Option(help="Train JSONL output path.")],
+    validation_out: Annotated[Path, typer.Option(help="Validation JSONL output path.")],
+    validation_ratio: Annotated[
+        float,
+        typer.Option(help="Approximate deterministic validation ratio."),
+    ] = 0.1,
+    seed: Annotated[int, typer.Option(help="Deterministic split seed.")] = 42,
+) -> None:
+    if not 0 < validation_ratio < 1:
+        raise typer.BadParameter("validation ratio must be in (0, 1)")
+    if training_records.resolve() in {train_out.resolve(), validation_out.resolve()}:
+        raise typer.BadParameter("split outputs must be different from the input file")
+
+    train_written = 0
+    validation_written = 0
+    with (
+        train_out.open("w", encoding="utf-8") as train_handle,
+        validation_out.open("w", encoding="utf-8") as validation_handle,
+    ):
+        for record in read_training_records_jsonl(training_records):
+            line = json.dumps(record.to_dict(), ensure_ascii=False) + "\n"
+            score = _stream_split_score(record_key=_record_split_key(record), seed=seed)
+            if score < validation_ratio:
+                validation_handle.write(line)
+                validation_written += 1
+            else:
+                train_handle.write(line)
+                train_written += 1
+
+    typer.echo(
+        json.dumps(
+            {
+                "train_records": train_written,
+                "validation_records": validation_written,
+                "validation_ratio": validation_ratio,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+
+
 @app.command("prepare-neural")
 def prepare_neural(
     pgn: Annotated[Path, typer.Argument(help="Path to a PGN file.")],
@@ -225,6 +314,18 @@ def prepare_neural(
     learning_rate: Annotated[
         float | None,
         typer.Option(help="Learning rate. Auto-selected when omitted."),
+    ] = None,
+    warmup_ratio: Annotated[
+        float | None,
+        typer.Option(help="Learning-rate warmup ratio. Auto-selected when omitted."),
+    ] = None,
+    max_grad_norm: Annotated[
+        float | None,
+        typer.Option(help="Gradient clipping norm. Auto-selected when omitted."),
+    ] = None,
+    mixed_precision: Annotated[
+        MixedPrecisionMode | None,
+        typer.Option(help="Mixed precision mode: auto, off, fp16, or bf16."),
     ] = None,
     gradient_accumulation_steps: Annotated[
         int | None,
@@ -272,6 +373,9 @@ def prepare_neural(
         epochs=epochs,
         batch_size=batch_size,
         learning_rate=learning_rate,
+        warmup_ratio=warmup_ratio,
+        max_grad_norm=max_grad_norm,
+        mixed_precision=mixed_precision,
         gradient_accumulation_steps=gradient_accumulation_steps,
         d_model=d_model,
         n_layers=n_layers,
@@ -338,6 +442,18 @@ def prepare_neural_stream(
         float | None,
         typer.Option(help="Learning rate. Auto-selected when omitted."),
     ] = None,
+    warmup_ratio: Annotated[
+        float | None,
+        typer.Option(help="Learning-rate warmup ratio. Auto-selected when omitted."),
+    ] = None,
+    max_grad_norm: Annotated[
+        float | None,
+        typer.Option(help="Gradient clipping norm. Auto-selected when omitted."),
+    ] = None,
+    mixed_precision: Annotated[
+        MixedPrecisionMode | None,
+        typer.Option(help="Mixed precision mode: auto, off, fp16, or bf16."),
+    ] = None,
     gradient_accumulation_steps: Annotated[
         int | None,
         typer.Option(help="Optimizer steps are run after this many batches."),
@@ -379,6 +495,9 @@ def prepare_neural_stream(
         epochs=epochs,
         batch_size=batch_size,
         learning_rate=learning_rate,
+        warmup_ratio=warmup_ratio,
+        max_grad_norm=max_grad_norm,
+        mixed_precision=mixed_precision,
         gradient_accumulation_steps=gradient_accumulation_steps,
         d_model=d_model,
         n_layers=n_layers,
@@ -479,6 +598,10 @@ def train_neural(
         NeuralConfigProfile,
         typer.Option(help="Hardware preset for omitted neural options."),
     ] = "auto",
+    validation_ratio: Annotated[
+        float,
+        typer.Option(help="Hold out this ratio of records for validation."),
+    ] = 0.0,
     epochs: Annotated[
         int | None,
         typer.Option(help="Training epochs. Auto-selected when omitted."),
@@ -490,6 +613,18 @@ def train_neural(
     learning_rate: Annotated[
         float | None,
         typer.Option(help="Learning rate. Auto-selected when omitted."),
+    ] = None,
+    warmup_ratio: Annotated[
+        float | None,
+        typer.Option(help="Learning-rate warmup ratio. Auto-selected when omitted."),
+    ] = None,
+    max_grad_norm: Annotated[
+        float | None,
+        typer.Option(help="Gradient clipping norm. Auto-selected when omitted."),
+    ] = None,
+    mixed_precision: Annotated[
+        MixedPrecisionMode | None,
+        typer.Option(help="Mixed precision mode: auto, off, fp16, or bf16."),
     ] = None,
     gradient_accumulation_steps: Annotated[
         int | None,
@@ -530,14 +665,22 @@ def train_neural(
         skip_first_plies=skip_first_plies,
     )
     records = build_training_records(examples)
+    train_records, validation_records = _split_validation_records(
+        records,
+        validation_ratio=validation_ratio,
+        seed=42,
+    )
 
     auto_config = _resolve_neural_auto_config(
-        len(records),
+        len(train_records),
         config_profile=config_profile,
         device=device,
         epochs=epochs,
         batch_size=batch_size,
         learning_rate=learning_rate,
+        warmup_ratio=warmup_ratio,
+        max_grad_norm=max_grad_norm,
+        mixed_precision=mixed_precision,
         gradient_accumulation_steps=gradient_accumulation_steps,
         d_model=d_model,
         n_layers=n_layers,
@@ -550,18 +693,20 @@ def train_neural(
     transformer = auto_config.transformer
     training = auto_config.training
     lora = auto_config.lora
-    typer.echo(_format_neural_config_summary(auto_config))
-    move_vocabulary = MoveVocabulary.from_records(records)
-    position_vocabulary = PositionVocabulary.from_records(records)
+    typer.echo(
+        _format_neural_config_summary(auto_config, validation_examples=len(validation_records))
+    )
+    move_vocabulary = MoveVocabulary.from_records(train_records)
+    position_vocabulary = PositionVocabulary.from_records(train_records)
     manifest = create_adapter_manifest(
-        records,
+        train_records,
         player=player,
         transformer=transformer,
         lora=lora,
         training=training,
     )
     samples = build_policy_samples(
-        records,
+        train_records,
         position_vocabulary=position_vocabulary,
         move_vocabulary=move_vocabulary,
         max_sequence_length=transformer.max_sequence_length,
@@ -570,6 +715,22 @@ def train_neural(
         collate_policy_samples(batch, move_pad_id=move_vocabulary.pad_id)
         for batch in _chunks(samples, training.batch_size)
     ]
+    validation_batches = (
+        [
+            collate_policy_samples(batch, move_pad_id=move_vocabulary.pad_id)
+            for batch in _chunks(
+                build_policy_samples(
+                    validation_records,
+                    position_vocabulary=position_vocabulary,
+                    move_vocabulary=move_vocabulary,
+                    max_sequence_length=transformer.max_sequence_length,
+                ),
+                training.batch_size,
+            )
+        ]
+        if validation_records
+        else None
+    )
 
     try:
         model, result = train_policy_model(
@@ -580,6 +741,7 @@ def train_neural(
             move_vocabulary_size=move_vocabulary.size,
             device=device,
             lora=lora if use_lora else None,
+            validation_batches=validation_batches,
         )
         checkpoint = save_torch_policy_checkpoint(
             checkpoint_dir,
@@ -608,6 +770,10 @@ def train_neural_stream(
     manifest: Annotated[Path, typer.Option(help="Adapter manifest path.")],
     move_vocab: Annotated[Path, typer.Option(help="Move vocabulary path.")],
     position_vocab: Annotated[Path, typer.Option(help="Position vocabulary path.")],
+    validation_records: Annotated[
+        Path | None,
+        typer.Option(help="Optional validation training JSONL path."),
+    ] = None,
     use_lora: Annotated[
         bool,
         typer.Option("--use-lora/--full-finetune", help="Train a PEFT LoRA adapter."),
@@ -624,6 +790,18 @@ def train_neural_stream(
     learning_rate: Annotated[
         float | None,
         typer.Option(help="Override learning rate from the manifest."),
+    ] = None,
+    warmup_ratio: Annotated[
+        float | None,
+        typer.Option(help="Override warmup ratio from the manifest."),
+    ] = None,
+    max_grad_norm: Annotated[
+        float | None,
+        typer.Option(help="Override gradient clipping norm from the manifest."),
+    ] = None,
+    mixed_precision: Annotated[
+        MixedPrecisionMode | None,
+        typer.Option(help="Override mixed precision mode from the manifest."),
     ] = None,
     gradient_accumulation_steps: Annotated[
         int | None,
@@ -674,6 +852,9 @@ def train_neural_stream(
         epochs=epochs,
         batch_size=batch_size,
         learning_rate=learning_rate,
+        warmup_ratio=warmup_ratio,
+        max_grad_norm=max_grad_norm,
+        mixed_precision=mixed_precision,
         gradient_accumulation_steps=gradient_accumulation_steps,
         d_model=d_model,
         n_layers=n_layers,
@@ -683,11 +864,27 @@ def train_neural_stream(
         lora_alpha=lora_alpha,
         lora_dropout=lora_dropout,
     )
-    typer.echo(_format_manifest_neural_config_summary(adapter_manifest))
+    typer.echo(
+        _format_manifest_neural_config_summary(
+            adapter_manifest,
+            validation_records=validation_records is not None,
+        )
+    )
 
     def batch_factory() -> Iterable[PolicyBatch]:
         return iter_policy_batches(
             read_training_records_jsonl(training_records),
+            position_vocabulary=position_vocabulary,
+            move_vocabulary=move_vocabulary,
+            max_sequence_length=adapter_manifest.transformer.max_sequence_length,
+            batch_size=adapter_manifest.training.batch_size,
+        )
+
+    def validation_batch_factory() -> Iterable[PolicyBatch]:
+        if validation_records is None:
+            return iter(())
+        return iter_policy_batches(
+            read_training_records_jsonl(validation_records),
             position_vocabulary=position_vocabulary,
             move_vocabulary=move_vocabulary,
             max_sequence_length=adapter_manifest.transformer.max_sequence_length,
@@ -703,6 +900,12 @@ def train_neural_stream(
             move_vocabulary_size=move_vocabulary.size,
             device=device,
             lora=adapter_manifest.lora if use_lora else None,
+            validation_batch_factory=validation_batch_factory
+            if validation_records is not None
+            else None,
+            training_batches=math.ceil(
+                adapter_manifest.training_examples / adapter_manifest.training.batch_size
+            ),
         )
         checkpoint = save_torch_policy_checkpoint(
             checkpoint_dir,
@@ -940,6 +1143,9 @@ def _resolve_neural_auto_config(
     epochs: int | None,
     batch_size: int | None,
     learning_rate: float | None,
+    warmup_ratio: float | None,
+    max_grad_norm: float | None,
+    mixed_precision: MixedPrecisionMode | None,
     gradient_accumulation_steps: int | None,
     d_model: int | None,
     n_layers: int | None,
@@ -973,7 +1179,15 @@ def _resolve_neural_auto_config(
             if gradient_accumulation_steps is not None
             else auto_config.training.gradient_accumulation_steps
         ),
-        warmup_ratio=auto_config.training.warmup_ratio,
+        warmup_ratio=warmup_ratio
+        if warmup_ratio is not None
+        else auto_config.training.warmup_ratio,
+        max_grad_norm=(
+            max_grad_norm if max_grad_norm is not None else auto_config.training.max_grad_norm
+        ),
+        mixed_precision=(
+            mixed_precision if mixed_precision is not None else auto_config.training.mixed_precision
+        ),
         seed=auto_config.training.seed,
     )
     lora = LoraConfig(
@@ -986,6 +1200,9 @@ def _resolve_neural_auto_config(
         epochs=epochs,
         batch_size=batch_size,
         learning_rate=learning_rate,
+        warmup_ratio=warmup_ratio,
+        max_grad_norm=max_grad_norm,
+        mixed_precision=mixed_precision,
         gradient_accumulation_steps=gradient_accumulation_steps,
         d_model=d_model,
         n_layers=n_layers,
@@ -1010,6 +1227,9 @@ def _override_manifest_neural_config(
     epochs: int | None,
     batch_size: int | None,
     learning_rate: float | None,
+    warmup_ratio: float | None,
+    max_grad_norm: float | None,
+    mixed_precision: MixedPrecisionMode | None,
     gradient_accumulation_steps: int | None,
     d_model: int | None,
     n_layers: int | None,
@@ -1023,6 +1243,9 @@ def _override_manifest_neural_config(
         epochs=epochs,
         batch_size=batch_size,
         learning_rate=learning_rate,
+        warmup_ratio=warmup_ratio,
+        max_grad_norm=max_grad_norm,
+        mixed_precision=mixed_precision,
         gradient_accumulation_steps=gradient_accumulation_steps,
         d_model=d_model,
         n_layers=n_layers,
@@ -1054,7 +1277,13 @@ def _override_manifest_neural_config(
             if gradient_accumulation_steps is not None
             else manifest.training.gradient_accumulation_steps
         ),
-        warmup_ratio=manifest.training.warmup_ratio,
+        warmup_ratio=warmup_ratio if warmup_ratio is not None else manifest.training.warmup_ratio,
+        max_grad_norm=max_grad_norm
+        if max_grad_norm is not None
+        else manifest.training.max_grad_norm,
+        mixed_precision=(
+            mixed_precision if mixed_precision is not None else manifest.training.mixed_precision
+        ),
         seed=manifest.training.seed,
     )
     lora = LoraConfig(
@@ -1071,6 +1300,9 @@ def _neural_override_names(
     epochs: int | None,
     batch_size: int | None,
     learning_rate: float | None,
+    warmup_ratio: float | None,
+    max_grad_norm: float | None,
+    mixed_precision: MixedPrecisionMode | None,
     gradient_accumulation_steps: int | None,
     d_model: int | None,
     n_layers: int | None,
@@ -1084,6 +1316,9 @@ def _neural_override_names(
         ("epochs", epochs),
         ("batch_size", batch_size),
         ("learning_rate", learning_rate),
+        ("warmup_ratio", warmup_ratio),
+        ("max_grad_norm", max_grad_norm),
+        ("mixed_precision", mixed_precision),
         ("gradient_accumulation_steps", gradient_accumulation_steps),
         ("d_model", d_model),
         ("n_layers", n_layers),
@@ -1096,10 +1331,15 @@ def _neural_override_names(
     return [name for name, value in values if value is not None]
 
 
-def _format_neural_config_summary(auto_config: NeuralAutoConfig) -> str:
+def _format_neural_config_summary(
+    auto_config: NeuralAutoConfig,
+    *,
+    validation_examples: int = 0,
+) -> str:
     transformer = auto_config.transformer
     training = auto_config.training
     lora = auto_config.lora
+    validation = f", validation_examples={validation_examples}" if validation_examples else ""
     return (
         "Selected neural config: "
         f"profile={auto_config.profile}, "
@@ -1108,26 +1348,39 @@ def _format_neural_config_summary(auto_config: NeuralAutoConfig) -> str:
         f"batch_size={training.batch_size}, "
         f"grad_accum={training.gradient_accumulation_steps}, "
         f"effective_batch={auto_config.effective_batch_size}, "
+        f"warmup_ratio={training.warmup_ratio}, "
+        f"max_grad_norm={training.max_grad_norm}, "
+        f"mixed_precision={training.mixed_precision}, "
         f"d_model={transformer.d_model}, "
         f"layers={transformer.n_layers}, "
         f"heads={transformer.n_heads}, "
         f"lora_rank={lora.rank}"
+        f"{validation}"
     )
 
 
-def _format_manifest_neural_config_summary(manifest: AdapterManifest) -> str:
+def _format_manifest_neural_config_summary(
+    manifest: AdapterManifest,
+    *,
+    validation_records: bool = False,
+) -> str:
     transformer = manifest.transformer
     training = manifest.training
+    validation = ", validation_records=true" if validation_records else ""
     return (
         "Using neural manifest config: "
         f"epochs={training.epochs}, "
         f"batch_size={training.batch_size}, "
         f"grad_accum={training.gradient_accumulation_steps}, "
         f"effective_batch={training.batch_size * training.gradient_accumulation_steps}, "
+        f"warmup_ratio={training.warmup_ratio}, "
+        f"max_grad_norm={training.max_grad_norm}, "
+        f"mixed_precision={training.mixed_precision}, "
         f"d_model={transformer.d_model}, "
         f"layers={transformer.n_layers}, "
         f"heads={transformer.n_heads}, "
         f"lora_rank={manifest.lora.rank}"
+        f"{validation}"
     )
 
 
@@ -1149,6 +1402,40 @@ def _require_positive_training_examples(training_examples: int) -> int:
     if training_examples <= 0:
         raise typer.BadParameter("training examples must be positive")
     return training_examples
+
+
+def _split_validation_records(
+    records: list[T],
+    *,
+    validation_ratio: float,
+    seed: int,
+) -> tuple[list[T], list[T]]:
+    if not 0 <= validation_ratio < 1:
+        raise typer.BadParameter("validation ratio must be in [0, 1)")
+    if validation_ratio == 0 or len(records) < 2:
+        return records, []
+
+    validation_size = max(1, int(round(len(records) * validation_ratio)))
+    validation_size = min(validation_size, len(records) - 1)
+    indices = list(range(len(records)))
+    random.Random(seed).shuffle(indices)
+    validation_indices = set(indices[:validation_size])
+    train_records = [
+        record for index, record in enumerate(records) if index not in validation_indices
+    ]
+    validation_records = [
+        record for index, record in enumerate(records) if index in validation_indices
+    ]
+    return train_records, validation_records
+
+
+def _record_split_key(record: TrainingRecord) -> str:
+    return f"{record.game_index}:{record.ply}:{record.position_key}:{record.target_move}"
+
+
+def _stream_split_score(*, record_key: str, seed: int) -> float:
+    digest = hashlib.sha256(f"{seed}:{record_key}".encode()).digest()
+    return int.from_bytes(digest[:8], byteorder="big") / float(2**64)
 
 
 def _write_split(

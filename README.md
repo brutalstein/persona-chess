@@ -44,6 +44,8 @@ persona-chess train games.pgn "Target Player" --model-type blend --out target-pl
 persona-chess move target-player.persona.json --fen "startpos"
 persona-chess export-training games.pgn "Target Player" --out target-player.train.jsonl
 persona-chess export-training-stream games.pgn "Target Player" --out target-player.train.jsonl
+persona-chess export-base-training-stream public-games.pgn --out base.train.jsonl
+persona-chess split-training-stream target-player.train.jsonl --train-out target-player.fit.jsonl --validation-out target-player.valid.jsonl
 persona-chess split games.pgn "Target Player" --train-out train.jsonl --test-out test.jsonl
 persona-chess benchmark games.pgn "Target Player" --model-type blend --out benchmark.json
 persona-chess prepare-neural games.pgn "Target Player" --manifest-out adapter.manifest.json --move-vocab-out moves.vocab.json --position-vocab-out positions.vocab.json
@@ -91,8 +93,18 @@ records on disk and only materialize the active batch during neural training.
 
 ```bash
 persona-chess export-training-stream games.pgn "Target Player" --out target-player.train.jsonl
+persona-chess split-training-stream target-player.train.jsonl --train-out target-player.fit.jsonl --validation-out target-player.valid.jsonl
 persona-chess prepare-neural-stream target-player.train.jsonl "Target Player" --manifest-out adapter.manifest.json --move-vocab-out moves.vocab.json --position-vocab-out positions.vocab.json
-persona-chess train-neural-stream target-player.train.jsonl --manifest adapter.manifest.json --move-vocab moves.vocab.json --position-vocab positions.vocab.json --checkpoint-dir checkpoints/player --use-lora
+persona-chess train-neural-stream target-player.fit.jsonl --manifest adapter.manifest.json --move-vocab moves.vocab.json --position-vocab positions.vocab.json --checkpoint-dir checkpoints/player --validation-records target-player.valid.jsonl --use-lora
+```
+
+To build a general chess policy foundation before persona adaptation, export every
+move from a large public PGN instead of filtering by one player:
+
+```bash
+persona-chess export-base-training-stream public-games.pgn --out base.train.jsonl
+persona-chess split-training-stream base.train.jsonl --train-out base.fit.jsonl --validation-out base.valid.jsonl
+persona-chess prepare-neural-stream base.fit.jsonl "persona-chess-base" --manifest-out base.manifest.json --move-vocab-out base.moves.json --position-vocab-out base.positions.json --config-profile large
 ```
 
 ## Neural Auto Configuration
@@ -105,12 +117,18 @@ training knobs directly:
 ```bash
 persona-chess recommend-neural-config --training-examples 500000 --device cuda
 persona-chess prepare-neural-stream target-player.train.jsonl "Target Player" --manifest-out adapter.manifest.json --move-vocab-out moves.vocab.json --position-vocab-out positions.vocab.json --config-profile balanced --epochs 3 --batch-size 32 --gradient-accumulation-steps 4
-persona-chess train-neural-stream target-player.train.jsonl --manifest adapter.manifest.json --move-vocab moves.vocab.json --position-vocab positions.vocab.json --checkpoint-dir checkpoints/player --epochs 2 --batch-size 16
+persona-chess train-neural-stream target-player.train.jsonl --manifest adapter.manifest.json --move-vocab moves.vocab.json --position-vocab positions.vocab.json --checkpoint-dir checkpoints/player --validation-records target-player.valid.jsonl --epochs 2 --batch-size 16
 ```
 
 For very large datasets, keep the streaming path: export once, prepare the neural
 artifacts from JSONL, then train from the manifest. This avoids loading the full
 PGN or training set into memory at once.
+
+The neural trainer reports train loss, optional validation loss, legal top-1
+accuracy, legal top-3 accuracy, optimizer steps, active mixed precision mode, and
+trainable parameter counts. Training uses AdamW, learning-rate warmup plus cosine
+decay, gradient accumulation, gradient clipping, and CUDA mixed precision when
+available.
 
 ## Project Direction
 

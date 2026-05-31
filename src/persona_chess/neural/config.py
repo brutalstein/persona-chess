@@ -1,5 +1,7 @@
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Any, Literal
+
+MixedPrecisionMode = Literal["auto", "off", "fp16", "bf16"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +63,8 @@ class NeuralTrainingConfig:
     weight_decay: float = 0.01
     gradient_accumulation_steps: int = 1
     warmup_ratio: float = 0.05
+    max_grad_norm: float | None = 1.0
+    mixed_precision: MixedPrecisionMode = "auto"
     seed: int = 42
 
     def __post_init__(self) -> None:
@@ -72,6 +76,10 @@ class NeuralTrainingConfig:
         if self.weight_decay < 0:
             raise ValueError("weight_decay must be non-negative")
         _require_probability("warmup_ratio", self.warmup_ratio)
+        if self.max_grad_norm is not None and self.max_grad_norm <= 0:
+            raise ValueError("max_grad_norm must be positive when set")
+        if self.mixed_precision not in {"auto", "off", "fp16", "bf16"}:
+            raise ValueError("mixed_precision must be one of auto, off, fp16, or bf16")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -80,6 +88,8 @@ class NeuralTrainingConfig:
     def from_dict(cls, data: dict[str, Any]) -> "NeuralTrainingConfig":
         payload = dict(data)
         payload.setdefault("gradient_accumulation_steps", 1)
+        payload.setdefault("max_grad_norm", 1.0)
+        payload.setdefault("mixed_precision", "auto")
         return cls(**payload)
 
 

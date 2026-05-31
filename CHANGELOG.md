@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 
 - Added hardware-aware neural auto configuration with user overrides for epochs, batch size, model size, and LoRA rank.
+- Added validation metrics, optimizer-step tracking, gradient clipping, warmup/cosine scheduling, and CUDA mixed precision to neural training.
+- Added all-player base-policy training export and deterministic streaming train/validation splits.
 - Added engine-guided persona reranking with external UCI engines.
 - Added persona model cards with style summaries, data-quality warnings, and model recommendations.
 - Added streaming PGN, JSONL, neural artifact, and policy-batch workflows for large training collections.

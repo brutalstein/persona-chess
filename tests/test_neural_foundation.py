@@ -29,6 +29,7 @@ from persona_chess.neural import (
     prepare_streaming_neural_artifacts,
     save_torch_policy_checkpoint,
     summarize_trainable_parameters,
+    train_policy_model,
     validate_neural_artifacts,
 )
 from persona_chess.pgn.filters import GameFilter
@@ -142,6 +143,67 @@ def test_streaming_policy_batches_are_model_ready() -> None:
     assert artifacts.move_vocabulary.size > 4000
     assert sum(batch.size for batch in batches) == len(records)
     assert batches[0].size == 3
+
+
+def test_torch_training_reports_validation_metrics() -> None:
+    if not is_torch_available():
+        pytest.skip("PyTorch is not installed in this environment.")
+
+    examples = build_move_examples(FIXTURE, GameFilter(player="Target Player"))
+    records = build_training_records(examples)
+    transformer = TransformerPolicyConfig(
+        max_sequence_length=64,
+        d_model=32,
+        n_layers=1,
+        n_heads=4,
+        dropout=0.0,
+    )
+    training = NeuralTrainingConfig(
+        epochs=1,
+        batch_size=4,
+        learning_rate=1e-3,
+        warmup_ratio=0.0,
+        mixed_precision="off",
+    )
+    move_vocabulary = MoveVocabulary.from_records(records)
+    position_vocabulary = PositionVocabulary.from_records(records)
+    batches = list(
+        iter_policy_batches(
+            iter(records[:8]),
+            position_vocabulary=position_vocabulary,
+            move_vocabulary=move_vocabulary,
+            max_sequence_length=transformer.max_sequence_length,
+            batch_size=training.batch_size,
+        )
+    )
+    validation_batches = list(
+        iter_policy_batches(
+            iter(records[8:]),
+            position_vocabulary=position_vocabulary,
+            move_vocabulary=move_vocabulary,
+            max_sequence_length=transformer.max_sequence_length,
+            batch_size=training.batch_size,
+        )
+    )
+
+    _, result = train_policy_model(
+        batches,
+        transformer=transformer,
+        training=training,
+        position_vocabulary_size=position_vocabulary.size,
+        move_vocabulary_size=move_vocabulary.size,
+        validation_batches=validation_batches,
+        device="cpu",
+    )
+
+    assert result.optimizer_steps > 0
+    assert result.average_train_loss > 0
+    assert result.validation_examples == 2
+    assert result.validation_loss is not None
+    assert result.validation_accuracy is not None
+    assert result.validation_top3_accuracy is not None
+    assert result.best_epoch == 1
+    assert result.mixed_precision == "off"
 
 
 def test_create_adapter_manifest_from_streaming_artifact_sizes() -> None:
@@ -365,3 +427,5 @@ def test_neural_training_config_loads_legacy_payloads() -> None:
     )
 
     assert config.gradient_accumulation_steps == 1
+    assert config.max_grad_norm == 1.0
+    assert config.mixed_precision == "auto"

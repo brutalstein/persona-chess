@@ -13,6 +13,7 @@ from persona_chess.neural.checkpoint import (
 )
 from persona_chess.neural.config import (
     LoraConfig,
+    MixedPrecisionMode,
     NeuralTrainingConfig,
     TransformerPolicyConfig,
 )
@@ -55,7 +56,9 @@ from persona_chess.neural.torch_backend import (
     policy_batch_to_tensors,
 )
 from persona_chess.neural.trainer import (
+    PolicyEvaluationResult,
     TrainingResult,
+    evaluate_policy_model,
     train_policy_model,
     train_policy_model_streaming,
 )
@@ -72,6 +75,7 @@ __all__ = [
     "LoraAdapterSummary",
     "HardwareProfile",
     "MoveVocabulary",
+    "MixedPrecisionMode",
     "NeuralAutoConfig",
     "NeuralArtifactValidation",
     "NeuralCheckpointManifest",
@@ -79,6 +83,7 @@ __all__ = [
     "NeuralPredictionTrace",
     "NeuralTrainingConfig",
     "PolicyBatch",
+    "PolicyEvaluationResult",
     "PolicySample",
     "PositionTokenizer",
     "PositionVocabulary",
@@ -93,6 +98,7 @@ __all__ = [
     "create_adapter_manifest",
     "create_adapter_manifest_from_vocabulary_sizes",
     "detect_hardware_profile",
+    "evaluate_policy_model",
     "gather_legal_logits",
     "iter_policy_batches",
     "iter_policy_samples",
