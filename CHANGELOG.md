@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.2.0 - 2026-06-01
+
+- Added the primary neural bot workflow: `PersonaChess().train(...)`, `PersonaChess.load_neural(...)`, and `bot.move(...)`.
+- Added automatic checkpoint directory creation with `model.pt`, checkpoint metadata, vocabularies, and training state.
+- Added terminal training progress with epoch, batch, loss, elapsed time, ETA, device, and mixed precision.
+- Added safer CUDA handling with automatic GPU use when supported and clear errors when CUDA is requested but unavailable.
+- Selected `malcouffe/chessgpt` as the default upstream chess-language base model reference for future Hugging Face adapter training.
 - Added hardware-aware neural auto configuration with user overrides for epochs, batch size, model size, and LoRA rank.
 - Added validation metrics, optimizer-step tracking, gradient clipping, warmup/cosine scheduling, and CUDA mixed precision to neural training.
 - Added all-player base-policy training export and deterministic streaming train/validation splits.
