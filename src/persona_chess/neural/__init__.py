@@ -19,6 +19,11 @@ from persona_chess.neural.config import (
     NeuralTrainingConfig,
     TransformerPolicyConfig,
 )
+from persona_chess.neural.hf_base import (
+    DEFAULT_BASE_MODEL,
+    download_hf_base_model,
+    predict_hf_base_moves,
+)
 from persona_chess.neural.inference import (
     NeuralPredictionTrace,
     legal_move_id_entries,
@@ -56,7 +61,6 @@ from persona_chess.neural.samples import (
     iter_policy_samples,
 )
 from persona_chess.neural.session import (
-    DEFAULT_BASE_MODEL,
     NeuralRecordsTrainRequest,
     NeuralTrainRequest,
     NeuralTrainResult,
@@ -132,6 +136,7 @@ __all__ = [
     "default_model_cache_dir",
     "detect_hardware_profile",
     "download_remote_model",
+    "download_hf_base_model",
     "evaluate_policy_model",
     "gather_legal_logits",
     "iter_policy_batches",
@@ -146,6 +151,7 @@ __all__ = [
     "prepare_streaming_neural_artifacts",
     "predict_policy_moves",
     "predict_policy_moves_from_checkpoint",
+    "predict_hf_base_moves",
     "recommend_neural_config",
     "resolve_model_reference",
     "save_torch_policy_checkpoint",

@@ -8,6 +8,7 @@ from persona_chess.chess.legal import board_from_fen, sorted_legal_moves
 from persona_chess.models.types import MovePrediction
 from persona_chess.neural.checkpoint import load_torch_policy_checkpoint
 from persona_chess.neural.config import TransformerPolicyConfig
+from persona_chess.neural.hf_base import DEFAULT_BASE_MODEL, predict_hf_base_moves
 from persona_chess.neural.position_vocabulary import PositionVocabulary
 from persona_chess.neural.tokens import PositionTokenizer
 from persona_chess.neural.torch_backend import require_torch
@@ -31,19 +32,40 @@ def predict_policy_moves_from_checkpoint(
     fen: str,
     top_k: int = 3,
     device: str | None = None,
+    use_base_model: bool = True,
+    base_model_weight: float = 0.65,
 ) -> list[MovePrediction]:
     model, _, adapter_manifest, move_vocabulary, position_vocabulary = load_torch_policy_checkpoint(
         checkpoint_dir,
         device=device,
     )
-    return predict_policy_moves(
+    native_predictions = predict_policy_moves(
         model,
         fen=fen,
         transformer=adapter_manifest.transformer,
         move_vocabulary=move_vocabulary,
         position_vocabulary=position_vocabulary,
-        top_k=top_k,
+        top_k=128,
         device=device,
+    )
+    if not use_base_model or adapter_manifest.base_model != DEFAULT_BASE_MODEL:
+        return native_predictions[:top_k]
+
+    try:
+        base_predictions = predict_hf_base_moves(
+            fen,
+            model_name=adapter_manifest.base_model,
+            top_k=128,
+            device=device,
+        )
+    except Exception:
+        return native_predictions[:top_k]
+    return _blend_predictions(
+        fen,
+        base_predictions=base_predictions,
+        persona_predictions=native_predictions,
+        base_model_weight=base_model_weight,
+        top_k=top_k,
     )
 
 
@@ -109,6 +131,35 @@ def legal_move_id_entries(
         if move_id != move_vocabulary.unk_id:
             entries.append((move, move_id))
     return entries
+
+
+def _blend_predictions(
+    fen: str,
+    *,
+    base_predictions: list[MovePrediction],
+    persona_predictions: list[MovePrediction],
+    base_model_weight: float,
+    top_k: int,
+) -> list[MovePrediction]:
+    board = board_from_fen(fen)
+    base_weight = min(1.0, max(0.0, base_model_weight))
+    persona_weight = 1.0 - base_weight
+    scores: dict[str, float] = {}
+    for prediction in base_predictions:
+        scores[prediction.move_uci] = scores.get(prediction.move_uci, 0.0) + (
+            base_weight * prediction.score
+        )
+    for prediction in persona_predictions:
+        scores[prediction.move_uci] = scores.get(prediction.move_uci, 0.0) + (
+            persona_weight * prediction.score
+        )
+
+    scored_moves = [(move, scores.get(move.uci(), 0.0)) for move in sorted_legal_moves(board)]
+    scored_moves.sort(key=lambda item: (-item[1], item[0].uci()))
+    return [
+        MovePrediction.from_board(board, move=move, score=score, reason="hf_base_persona_policy")
+        for move, score in scored_moves[:top_k]
+    ]
 
 
 def _uniform_fallback(board: chess.Board, *, top_k: int, reason: str) -> list[MovePrediction]:

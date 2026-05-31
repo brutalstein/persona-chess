@@ -11,9 +11,9 @@ from persona_chess.models.registry import create_model, load_model
 from persona_chess.models.types import MovePrediction
 from persona_chess.neural.autotune import NeuralConfigProfile
 from persona_chess.neural.config import MixedPrecisionMode
+from persona_chess.neural.hf_base import DEFAULT_BASE_MODEL
 from persona_chess.neural.inference import predict_policy_moves_from_checkpoint
 from persona_chess.neural.session import (
-    DEFAULT_BASE_MODEL,
     NeuralTrainRequest,
     NeuralTrainResult,
     train_neural_persona,
@@ -124,6 +124,8 @@ class PersonaChess:
         checkpoint_dir: str | Path | None = None,
         top_k: int = 1,
         device: str | None = None,
+        use_base_model: bool = True,
+        base_model_weight: float = 0.65,
     ) -> list[MovePrediction]:
         active_checkpoint_dir = (
             Path(checkpoint_dir) if checkpoint_dir else self.neural_checkpoint_dir
@@ -137,6 +139,8 @@ class PersonaChess:
             fen=fen,
             top_k=top_k,
             device=device,
+            use_base_model=use_base_model,
+            base_model_weight=base_model_weight,
         )
 
     def move(
@@ -144,9 +148,17 @@ class PersonaChess:
         fen: str,
         *,
         device: str | None = None,
+        use_base_model: bool = True,
+        base_model_weight: float = 0.65,
     ) -> MovePrediction:
         if self.neural_checkpoint_dir is not None:
-            return self.predict_neural(fen, top_k=1, device=device)[0]
+            return self.predict_neural(
+                fen,
+                top_k=1,
+                device=device,
+                use_base_model=use_base_model,
+                base_model_weight=base_model_weight,
+            )[0]
         return self.predict(fen, top_k=1)[0]
 
     def save(self, path: str | Path) -> None:

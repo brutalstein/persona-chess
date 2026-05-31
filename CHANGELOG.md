@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.2.1 - 2026-06-01
+
+- Added real Hugging Face base-policy inference through `Maxlegrec/ChessBot`.
+- Blended the downloaded FEN-based base chess policy with the trained persona checkpoint in `bot.move(...)`.
+- Added `transformers` to the `ml` extra for base-model loading.
+- Switched the default base model from a move-sequence-only model to a FEN-based chess model that matches the `move(fen)` API.
+
 ## 0.2.0 - 2026-06-01
 
 - Added the primary neural bot workflow: `PersonaChess().train(...)`, `PersonaChess.load_neural(...)`, and `bot.move(...)`.

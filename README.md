@@ -51,12 +51,12 @@ move = bot.move("startpos")
 print(move.move_uci, move.san)
 ```
 
-By default, persona checkpoints are tagged against `malcouffe/chessgpt`, a
-432M-parameter UCI-move ChessGPT model trained on Lichess move sequences under
-Apache-2.0. This is the selected upstream base model direction for
-`persona-chess` because it treats chess as move language instead of engine
-evaluation. The native checkpoint trainer remains compatible with local
-`init_checkpoint` files while the Hugging Face base adapter path is hardened.
+By default, persona checkpoints use `Maxlegrec/ChessBot` as the upstream base
+policy. It is a MIT-licensed FEN-based Transformer chess model that predicts
+moves from board positions. At inference time `bot.move(...)` blends that base
+policy with the trained persona checkpoint, so the bot has a general chess prior
+plus the selected player's PGN style. The base model is downloaded through
+Hugging Face the first time it is needed when `persona-chess[ml]` is installed.
 
 For large PGNs, keep the same API and switch on streaming. This writes training
 records under the checkpoint folder and trains batch by batch instead of keeping

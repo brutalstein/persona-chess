@@ -23,6 +23,7 @@ from persona_chess.neural.config import (
     NeuralTrainingConfig,
     TransformerPolicyConfig,
 )
+from persona_chess.neural.hf_base import DEFAULT_BASE_MODEL
 from persona_chess.neural.manifest import AdapterManifest
 from persona_chess.neural.model_hub import ModelRegistry, resolve_model_reference
 from persona_chess.neural.planning import create_adapter_manifest_from_vocabulary_sizes
@@ -53,7 +54,6 @@ from persona_chess.training import (
 )
 
 T = TypeVar("T")
-DEFAULT_BASE_MODEL = "malcouffe/chessgpt"
 
 
 @dataclass(frozen=True, slots=True)
