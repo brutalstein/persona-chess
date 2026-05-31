@@ -39,6 +39,7 @@ print(prediction[0].san)
 
 ```bash
 persona-chess profile games.pgn "Target Player"
+persona-chess model-card games.pgn "Target Player" --out target-player.model-card.json
 persona-chess train games.pgn "Target Player" --model-type blend --out target-player.persona.json
 persona-chess move target-player.persona.json --fen "startpos"
 persona-chess export-training games.pgn "Target Player" --out target-player.train.jsonl
@@ -57,6 +58,17 @@ Built-in model backends:
 - `frequency`: exact position memory with global legal fallback.
 - `opening_book`: early-game repertoire memory.
 - `phase`: game-phase move prior for opening, middlegame, and endgame positions.
+
+## Persona Model Cards
+
+Model cards turn a PGN collection into a portable style and data-quality report.
+They include style tags, move and phase breakdowns, data warnings, and a recommended
+inference path.
+
+```bash
+persona-chess model-card games.pgn "Target Player" --out target-player.model-card.json
+persona-chess model-card games.pgn "Target Player" --format markdown --out target-player.model-card.md
+```
 
 ## Engine-Guided Persona Moves
 

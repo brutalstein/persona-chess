@@ -2,6 +2,7 @@ from persona_chess._version import __version__
 from persona_chess.dataset.records import MoveExample
 from persona_chess.evaluation.metrics import MoveMatchMetrics
 from persona_chess.facade import PersonaChess
+from persona_chess.model_card import PersonaModelCard, build_model_card
 from persona_chess.models.blend import BlendPersonaModel
 from persona_chess.models.frequency import FrequencyPersonaModel
 from persona_chess.models.opening import OpeningBookPersonaModel
@@ -37,6 +38,7 @@ __all__ = [
     "PolicySample",
     "OpeningBookPersonaModel",
     "PersonaChess",
+    "PersonaModelCard",
     "PersonaProfile",
     "PhasePersonaModel",
     "PositionTokenizer",
@@ -44,4 +46,5 @@ __all__ = [
     "TransformerPolicyConfig",
     "TrainingRecord",
     "__version__",
+    "build_model_card",
 ]

@@ -7,7 +7,7 @@ behavior or make the project easier to use and maintain.
 
 1. Add more representative PGN fixtures and benchmark cases.
 2. Add neural benchmark reports for checkpoint inference.
-3. Add model cards for persona artifacts and benchmark reports.
+3. Expand model cards with benchmark and engine-agreement sections.
 4. Add UCI engine mode for playing personas in chess GUIs.
 5. Add release automation for version bumps and changelog validation.
 

@@ -18,6 +18,10 @@ while leaving room for a Transformer + LoRA backend later.
 `profile`
 : Builds player-level summaries such as first-move and result distributions.
 
+`model_card`
+: Produces versioned player style reports with data-quality warnings and
+recommended inference paths.
+
 `models`
 : Holds inference backends. The default `BlendPersonaModel` combines exact
 position memory, opening-book memory, and phase-level priors. New backends should

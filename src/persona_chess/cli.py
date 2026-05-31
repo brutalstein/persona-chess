@@ -15,6 +15,7 @@ from persona_chess.engines import EngineGuidanceConfig, predict_engine_guided_mo
 from persona_chess.evaluation.benchmark import run_benchmark
 from persona_chess.evaluation.metrics import evaluate_move_matching
 from persona_chess.exceptions import OptionalDependencyError
+from persona_chess.model_card import build_model_card
 from persona_chess.models.registry import supported_model_types
 from persona_chess.neural import (
     AdapterManifest,
@@ -36,6 +37,7 @@ from persona_chess.profile.builder import build_profile
 from persona_chess.training import build_training_records, write_training_records_jsonl
 
 DatasetOutputFormat = Literal["examples", "training"]
+ModelCardOutputFormat = Literal["json", "markdown"]
 T = TypeVar("T")
 
 app = typer.Typer(
@@ -60,6 +62,46 @@ def profile(
         return
 
     typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+
+
+@app.command("model-card")
+def model_card(
+    pgn: Annotated[Path, typer.Argument(help="Path to a PGN file.")],
+    player: Annotated[str, typer.Argument(help="Player name as written in PGN headers.")],
+    out: Annotated[Path | None, typer.Option(help="Optional report output path.")] = None,
+    output_format: Annotated[
+        ModelCardOutputFormat,
+        typer.Option("--format", help="Report format."),
+    ] = "json",
+    color: Annotated[PlayerColor, typer.Option(help="Filter games by player color.")] = "both",
+    max_games: Annotated[
+        int | None,
+        typer.Option(help="Limit the number of matched games."),
+    ] = None,
+    skip_first_plies: Annotated[
+        int,
+        typer.Option(help="Skip early plies when analyzing style."),
+    ] = 0,
+) -> None:
+    card = build_model_card(
+        pgn,
+        player=player,
+        color=color,
+        max_games=max_games,
+        skip_first_plies=skip_first_plies,
+    )
+    payload = (
+        card.to_markdown()
+        if output_format == "markdown"
+        else json.dumps(card.to_dict(), indent=2, sort_keys=True)
+    )
+
+    if out:
+        out.write_text(payload + "\n", encoding="utf-8")
+        typer.echo(f"Wrote model card: {out}")
+        return
+
+    typer.echo(payload)
 
 
 @app.command()

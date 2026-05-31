@@ -28,6 +28,40 @@ def test_cli_engine_move_help() -> None:
     assert "UCI engine binary" in result.output
 
 
+def test_cli_model_card_writes_json_and_markdown(tmp_path: Path) -> None:
+    runner = CliRunner()
+    json_out = tmp_path / "target.model-card.json"
+    markdown_out = tmp_path / "target.model-card.md"
+
+    json_result = runner.invoke(
+        app,
+        [
+            "model-card",
+            str(FIXTURE),
+            "Target Player",
+            "--out",
+            str(json_out),
+        ],
+    )
+    markdown_result = runner.invoke(
+        app,
+        [
+            "model-card",
+            str(FIXTURE),
+            "Target Player",
+            "--out",
+            str(markdown_out),
+            "--format",
+            "markdown",
+        ],
+    )
+
+    assert json_result.exit_code == 0
+    assert markdown_result.exit_code == 0
+    assert '"schema_version": "persona-chess/model-card/v1"' in json_out.read_text(encoding="utf-8")
+    assert "# Persona Model Card: Target Player" in markdown_out.read_text(encoding="utf-8")
+
+
 def test_cli_prepare_and_validate_neural_artifacts(tmp_path: Path) -> None:
     runner = CliRunner()
     manifest = tmp_path / "adapter.manifest.json"
