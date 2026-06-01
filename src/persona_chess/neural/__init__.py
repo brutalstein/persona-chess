@@ -30,6 +30,7 @@ from persona_chess.neural.hf_base import (
     download_hf_base_model,
     ensure_hf_base_model_cached,
     predict_hf_base_moves,
+    verify_hf_base_model_usable,
 )
 from persona_chess.neural.inference import (
     NeuralPredictionTrace,
@@ -146,6 +147,7 @@ __all__ = [
     "download_remote_model",
     "download_hf_base_model",
     "ensure_hf_base_model_cached",
+    "verify_hf_base_model_usable",
     "evaluate_policy_model",
     "gather_legal_logits",
     "iter_policy_batches",

@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.2.6 - 2026-06-01
+
+- Added a mandatory default base-policy training preflight; training now verifies that `Maxlegrec/ChessBot` can load and return a legal move before starting.
+- Added a `require_base_model` training flag that defaults to true for the Python API and neural training sessions.
+- Exported `verify_hf_base_model_usable` for direct diagnostics.
+
 ## 0.2.5 - 2026-06-01
 
 - Fixed Hugging Face base model loading with newer Transformers releases for remote models that do not define `all_tied_weights_keys`.

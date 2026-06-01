@@ -1,6 +1,9 @@
 from types import SimpleNamespace
 
-from persona_chess.neural import ensure_hf_base_model_cached
+import pytest
+
+from persona_chess.models.types import MovePrediction
+from persona_chess.neural import ensure_hf_base_model_cached, verify_hf_base_model_usable
 from persona_chess.neural import hf_base as hf_base_module
 
 
@@ -35,3 +38,29 @@ def test_transformers_remote_model_compat_adds_missing_tied_weights_attr() -> No
     hf_base_module._patch_transformers_remote_model_compat(transformers)
 
     assert FakePretrainedModel.all_tied_weights_keys == {}
+
+
+def test_verify_hf_base_model_usable_returns_preflight_move(monkeypatch) -> None:
+    expected = MovePrediction(
+        move_uci="e2e4",
+        san="e4",
+        score=1.0,
+        reason="hf_base_policy",
+    )
+
+    def fake_predict(*args: object, **kwargs: object) -> list[MovePrediction]:
+        return [expected]
+
+    monkeypatch.setattr(hf_base_module, "predict_hf_base_moves", fake_predict)
+
+    assert verify_hf_base_model_usable("Maxlegrec/ChessBot") == expected
+
+
+def test_verify_hf_base_model_usable_rejects_empty_policy(monkeypatch) -> None:
+    def fake_predict(*args: object, **kwargs: object) -> list[MovePrediction]:
+        return []
+
+    monkeypatch.setattr(hf_base_module, "predict_hf_base_moves", fake_predict)
+
+    with pytest.raises(RuntimeError, match="did not return a legal move"):
+        verify_hf_base_model_usable("Maxlegrec/ChessBot")

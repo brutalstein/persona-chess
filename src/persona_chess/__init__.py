@@ -49,6 +49,7 @@ from persona_chess.neural import (
     torch_runtime_info,
     train_neural_persona,
     train_neural_records,
+    verify_hf_base_model_usable,
     write_pgn_training_records,
 )
 from persona_chess.pgn.filters import GameFilter
@@ -100,6 +101,7 @@ __all__ = [
     "download_hf_base_model",
     "download_remote_model",
     "ensure_hf_base_model_cached",
+    "verify_hf_base_model_usable",
     "evaluate_policy_model",
     "iter_training_records",
     "load_torch_policy_state",

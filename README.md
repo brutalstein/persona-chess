@@ -18,7 +18,10 @@ That single command installs the runtime stack used by the main workflow:
 PyTorch, Transformers, PEFT, compressed PGN support, and evaluation helpers.
 When training starts, `persona-chess` checks the selected base model in the local
 Hugging Face cache. If it is already present, it reuses it; if not, it downloads
-it once and subsequent runs use the cached copy.
+it once and subsequent runs use the cached copy. Training then verifies the
+default base policy by asking it for a legal move before the persona training
+loop starts. If that verification fails, training stops instead of producing a
+persona checkpoint without a usable base policy.
 
 CUDA is handled through PyTorch. `persona-chess` uses CUDA automatically when the
 installed PyTorch build can see a compatible GPU; otherwise it trains on CPU and
@@ -51,6 +54,7 @@ result = PersonaChess().train(
     epochs=3,          # optional
     batch_size=32,     # optional
     device="cuda",     # optional; auto uses CUDA when PyTorch can see it
+    require_base_model=True,  # default; fail if the base policy is unusable
 )
 
 print(result.checkpoint_dir)

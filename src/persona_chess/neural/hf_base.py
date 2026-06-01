@@ -78,6 +78,37 @@ def ensure_hf_base_model_cached(
     return str(path)
 
 
+def verify_hf_base_model_usable(
+    model_name: str = DEFAULT_BASE_MODEL,
+    *,
+    device: str | None = None,
+    fen: str = "startpos",
+) -> MovePrediction:
+    print(
+        f"PersonaChess base model: verifying {model_name} before training.",
+        file=sys.stderr,
+        flush=True,
+    )
+    predictions = predict_hf_base_moves(
+        fen,
+        model_name=model_name,
+        top_k=1,
+        device=device,
+    )
+    if not predictions:
+        raise RuntimeError(
+            f"Base model {model_name!r} did not return a legal move for the training preflight."
+        )
+    prediction = predictions[0]
+    print(
+        "PersonaChess base model: verified "
+        f"{model_name} with {prediction.move_uci} ({prediction.reason}).",
+        file=sys.stderr,
+        flush=True,
+    )
+    return prediction
+
+
 @lru_cache(maxsize=4)
 def _load_hf_base_model(model_name: str, device: str) -> Any:
     transformers = _require_module("transformers")

@@ -24,7 +24,11 @@ from persona_chess.neural.config import (
     TransformerPolicyConfig,
 )
 from persona_chess.neural.cuda import cuda_diagnostic_message, torch_runtime_info
-from persona_chess.neural.hf_base import DEFAULT_BASE_MODEL, ensure_hf_base_model_cached
+from persona_chess.neural.hf_base import (
+    DEFAULT_BASE_MODEL,
+    ensure_hf_base_model_cached,
+    verify_hf_base_model_usable,
+)
 from persona_chess.neural.manifest import AdapterManifest
 from persona_chess.neural.model_hub import ModelRegistry, resolve_model_reference
 from persona_chess.neural.planning import create_adapter_manifest_from_vocabulary_sizes
@@ -81,6 +85,7 @@ class NeuralTrainRequest:
     checkpoint_every_epoch: bool = False
     show_progress: bool = True
     prefetch_base_model: bool = True
+    require_base_model: bool = True
     epochs: int | None = None
     batch_size: int | None = None
     learning_rate: float | None = None
@@ -116,6 +121,7 @@ class NeuralRecordsTrainRequest:
     checkpoint_every_epoch: bool = False
     show_progress: bool = True
     prefetch_base_model: bool = True
+    require_base_model: bool = True
     epochs: int | None = None
     batch_size: int | None = None
     learning_rate: float | None = None
@@ -349,9 +355,11 @@ class _ConsoleTrainingProgress:
 
 
 def train_neural_persona(request: NeuralTrainRequest) -> NeuralTrainResult:
-    _prefetch_base_model_if_needed(
+    _prepare_base_model_for_training(
         base_model=request.base_model,
-        enabled=request.prefetch_base_model,
+        device=request.device,
+        prefetch=request.prefetch_base_model,
+        require=request.require_base_model,
     )
     if request.streaming:
         records_dir = (
@@ -382,6 +390,7 @@ def train_neural_persona(request: NeuralTrainRequest) -> NeuralTrainResult:
                 checkpoint_every_epoch=request.checkpoint_every_epoch,
                 show_progress=request.show_progress,
                 prefetch_base_model=False,
+                require_base_model=False,
                 epochs=request.epochs,
                 batch_size=request.batch_size,
                 learning_rate=request.learning_rate,
@@ -419,9 +428,11 @@ def train_neural_persona(request: NeuralTrainRequest) -> NeuralTrainResult:
 
 
 def train_neural_records(request: NeuralRecordsTrainRequest) -> NeuralTrainResult:
-    _prefetch_base_model_if_needed(
+    _prepare_base_model_for_training(
         base_model=request.base_model,
-        enabled=request.prefetch_base_model,
+        device=request.device,
+        prefetch=request.prefetch_base_model,
+        require=request.require_base_model,
     )
     train_path = Path(request.training_records)
     validation_path = Path(request.validation_records) if request.validation_records else None
@@ -871,10 +882,19 @@ def _resolve_neural_auto_config(
     )
 
 
-def _prefetch_base_model_if_needed(*, base_model: str, enabled: bool) -> None:
-    if not enabled or base_model != DEFAULT_BASE_MODEL:
+def _prepare_base_model_for_training(
+    *,
+    base_model: str,
+    device: str | None,
+    prefetch: bool,
+    require: bool,
+) -> None:
+    if base_model != DEFAULT_BASE_MODEL:
         return
-    ensure_hf_base_model_cached(base_model)
+    if prefetch:
+        ensure_hf_base_model_cached(base_model)
+    if require:
+        verify_hf_base_model_usable(base_model, device=device)
 
 
 def _load_training_states(
