@@ -89,8 +89,8 @@ def _open_zstandard_text(path: Path) -> Iterator[TextIO]:
         zstandard = import_module("zstandard")
     except ModuleNotFoundError as exc:
         raise OptionalDependencyError(
-            "Reading .zst PGN files requires the formats extra: "
-            "pip install 'persona-chess[formats]'"
+            "Reading .zst PGN files requires zstandard. Install persona-chess with: "
+            "pip install persona-chess"
         ) from exc
 
     with path.open("rb") as raw:

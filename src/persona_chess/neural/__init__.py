@@ -28,6 +28,7 @@ from persona_chess.neural.cuda import (
 from persona_chess.neural.hf_base import (
     DEFAULT_BASE_MODEL,
     download_hf_base_model,
+    ensure_hf_base_model_cached,
     predict_hf_base_moves,
 )
 from persona_chess.neural.inference import (
@@ -144,6 +145,7 @@ __all__ = [
     "detect_hardware_profile",
     "download_remote_model",
     "download_hf_base_model",
+    "ensure_hf_base_model_cached",
     "evaluate_policy_model",
     "gather_legal_logits",
     "iter_policy_batches",

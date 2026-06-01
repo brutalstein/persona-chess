@@ -16,6 +16,9 @@ pip install persona-chess
 
 That single command installs the runtime stack used by the main workflow:
 PyTorch, Transformers, PEFT, compressed PGN support, and evaluation helpers.
+When training starts, `persona-chess` checks the selected base model in the local
+Hugging Face cache. If it is already present, it reuses it; if not, it downloads
+it once and subsequent runs use the cached copy.
 
 CUDA is handled through PyTorch. `persona-chess` uses CUDA automatically when the
 installed PyTorch build can see a compatible GPU; otherwise it trains on CPU and
@@ -25,6 +28,9 @@ or whether the requested CUDA device is invalid. For NVIDIA GPUs, use the
 official PyTorch selector at https://pytorch.org/get-started/locally/ when you
 need a specific CUDA wheel. A driver that reports CUDA 13.x support can still
 need the CUDA wheel version currently published by PyTorch for Windows.
+`persona-chess` will not silently rewrite the user's Python environment during
+training; it reports the exact PyTorch/CUDA mismatch instead of guessing and
+installing a different wheel behind the scenes.
 
 For local development:
 
@@ -60,7 +66,7 @@ policy. It is a MIT-licensed FEN-based Transformer chess model that predicts
 moves from board positions. At inference time `bot.move(...)` blends that base
 policy with the trained persona checkpoint, so the bot has a general chess prior
 plus the selected player's PGN style. The base model is downloaded through
-Hugging Face the first time it is needed when `persona-chess[ml]` is installed.
+Hugging Face the first time it is needed after `pip install persona-chess`.
 
 For large PGNs, keep the same API and switch on streaming. This writes training
 records under the checkpoint folder and trains batch by batch instead of keeping
@@ -160,11 +166,7 @@ persona-chess engine-move target-player.persona.json --engine-path /path/to/stoc
 For large PGN collections, use the streaming commands. They keep the training
 records on disk and only materialize the active batch during neural training.
 Input can be plain `.pgn` or compressed `.pgn.gz`, `.pgn.bz2`, `.pgn.xz`, and
-`.pgn.zst` files. Zstandard support is optional:
-
-```bash
-pip install "persona-chess[formats]"
-```
+`.pgn.zst` files. Zstandard support is installed by default.
 
 ```bash
 persona-chess export-training-stream games.pgn "Target Player" --out target-player.train.jsonl

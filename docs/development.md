@@ -32,13 +32,7 @@ Run a local smoke test:
 .\.venv\Scripts\persona-chess engine-move --help
 ```
 
-Install optional ML dependencies:
-
-```bash
-.\.venv\Scripts\python -m pip install -e ".[ml]"
-```
-
-Run a neural training smoke test after installing ML dependencies:
+Run a neural training smoke test:
 
 ```bash
 .\.venv\Scripts\persona-chess train-neural tests\fixtures\sample.pgn "Target Player" --checkpoint-dir checkpoints\target-player --epochs 1 --batch-size 4 --use-lora

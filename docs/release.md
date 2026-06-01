@@ -16,10 +16,9 @@ on real PGN collections.
 .\.venv\Scripts\python -m twine check dist/*
 ```
 
-## Optional ML Smoke
+## Neural Smoke
 
 ```bash
-.\.venv\Scripts\python -m pip install -e ".[ml]"
 .\.venv\Scripts\persona-chess train-neural tests\fixtures\sample.pgn "Target Player" --checkpoint-dir checkpoints\target-player --epochs 1 --batch-size 4 --d-model 32 --n-layers 1 --n-heads 4 --use-lora --lora-rank 2 --lora-alpha 4
 .\.venv\Scripts\persona-chess neural-move checkpoints\target-player --fen startpos
 ```

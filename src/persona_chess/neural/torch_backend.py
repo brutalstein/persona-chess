@@ -19,7 +19,8 @@ def require_torch() -> Any:
         return import_module("torch")
     except ModuleNotFoundError as exc:
         raise OptionalDependencyError(
-            "PyTorch is required for neural training. Install persona-chess with the ml extra."
+            "PyTorch is required for neural training. Install persona-chess with: "
+            "pip install persona-chess"
         ) from exc
 
 

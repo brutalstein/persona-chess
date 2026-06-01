@@ -23,6 +23,7 @@ def test_persona_train_builds_neural_checkpoint(tmp_path: Path) -> None:
         batch_size=4,
         learning_rate=1e-3,
         show_progress=False,
+        prefetch_base_model=False,
         mixed_precision="off",
     )
 
@@ -60,6 +61,7 @@ def test_persona_move_can_blend_hf_base_policy(
         batch_size=4,
         learning_rate=1e-3,
         show_progress=False,
+        prefetch_base_model=False,
         mixed_precision="off",
     )
 
@@ -94,6 +96,7 @@ def test_persona_train_can_stream_from_pgn(tmp_path: Path) -> None:
         batch_size=4,
         learning_rate=1e-3,
         show_progress=False,
+        prefetch_base_model=False,
         mixed_precision="off",
     )
 

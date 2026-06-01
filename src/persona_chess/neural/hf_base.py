@@ -1,7 +1,6 @@
 import sys
 from functools import lru_cache
 from importlib import import_module
-from pathlib import Path
 from typing import Any
 
 import chess
@@ -54,11 +53,29 @@ def download_hf_base_model(
     model_name: str = DEFAULT_BASE_MODEL,
     *,
     device: str | None = None,
-) -> Path | None:
+) -> str:
     torch = _require_module("torch")
     active_device = resolve_torch_device(torch, requested_device=device)
     _load_hf_base_model(model_name, active_device)
-    return None
+    return model_name
+
+
+def ensure_hf_base_model_cached(
+    model_name: str = DEFAULT_BASE_MODEL,
+) -> str:
+    huggingface_hub = _require_module("huggingface_hub")
+    print(
+        f"PersonaChess base model: checking Hugging Face cache for {model_name}.",
+        file=sys.stderr,
+        flush=True,
+    )
+    path = huggingface_hub.snapshot_download(repo_id=model_name)
+    print(
+        f"PersonaChess base model: ready at {path}.",
+        file=sys.stderr,
+        flush=True,
+    )
+    return str(path)
 
 
 @lru_cache(maxsize=4)

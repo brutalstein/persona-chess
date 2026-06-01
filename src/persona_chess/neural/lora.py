@@ -32,7 +32,8 @@ def require_peft() -> Any:
         return import_module("peft")
     except ModuleNotFoundError as exc:
         raise OptionalDependencyError(
-            "PEFT is required for LoRA training. Install persona-chess with the ml extra."
+            "PEFT is required for LoRA training. Install persona-chess with: "
+            "pip install persona-chess"
         ) from exc
 
 

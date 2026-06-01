@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.2.4 - 2026-06-01
+
+- Added base-model cache preflight at training start; the default Hugging Face base model is downloaded once and reused from cache on later runs.
+- Added a `prefetch_base_model` training option for controlled tests and advanced workflows.
+- Documented that `persona-chess` reports CUDA wheel mismatches instead of silently rewriting the user's Python environment during training.
+
 ## 0.2.3 - 2026-06-01
 
 - Added NVIDIA driver and `nvidia-smi` CUDA runtime detection when PyTorch is CPU-only.

@@ -103,7 +103,7 @@ from record iterators or JSONL streams.
 : Builds a minimal Transformer policy model only when PyTorch is installed.
 
 `lora`
-: Applies LoRA through PEFT when optional ML dependencies are installed.
+: Applies LoRA through PEFT, which is part of the default runtime install.
 
 `trainer`
 : Provides a small supervised training loop that computes loss over legal moves and
