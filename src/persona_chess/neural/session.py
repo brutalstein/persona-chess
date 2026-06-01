@@ -280,6 +280,11 @@ class _ConsoleTrainingProgress:
             runtime_text = (
                 f", torch={runtime.torch_version}, cuda_build={runtime.cuda_build or 'cpu'}"
             )
+            if runtime.nvidia_driver_version or runtime.nvidia_smi_cuda_version:
+                runtime_text += (
+                    f", nvidia_driver={runtime.nvidia_driver_version or 'unknown'}, "
+                    f"nvidia_cuda={runtime.nvidia_smi_cuda_version or 'unknown'}"
+                )
         except Exception:
             runtime_text = ""
         hardware = auto_config.hardware

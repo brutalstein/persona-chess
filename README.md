@@ -21,9 +21,10 @@ CUDA is handled through PyTorch. `persona-chess` uses CUDA automatically when th
 installed PyTorch build can see a compatible GPU; otherwise it trains on CPU and
 prints a diagnostic message. If CUDA is requested but unavailable, the error
 explains whether the installed PyTorch wheel is CPU-only, whether CUDA is hidden,
-or whether the requested CUDA device is invalid. Current PyTorch stable wheels on
-PyPI target CUDA 13.x on supported platforms; follow the selector at
-https://pytorch.org/get-started/locally/ when you need a specific CUDA build.
+or whether the requested CUDA device is invalid. For NVIDIA GPUs, use the
+official PyTorch selector at https://pytorch.org/get-started/locally/ when you
+need a specific CUDA wheel. A driver that reports CUDA 13.x support can still
+need the CUDA wheel version currently published by PyTorch for Windows.
 
 For local development:
 
