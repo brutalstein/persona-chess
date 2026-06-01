@@ -1,3 +1,4 @@
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,7 @@ def predict_policy_moves_from_checkpoint(
     device: str | None = None,
     use_base_model: bool = True,
     base_model_weight: float = 0.65,
+    require_base_model: bool = False,
 ) -> list[MovePrediction]:
     model, _, adapter_manifest, move_vocabulary, position_vocabulary = load_torch_policy_checkpoint(
         checkpoint_dir,
@@ -58,7 +60,17 @@ def predict_policy_moves_from_checkpoint(
             top_k=128,
             device=device,
         )
-    except Exception:
+    except Exception as exc:
+        if require_base_model:
+            raise RuntimeError(
+                f"Base model {adapter_manifest.base_model!r} could not be used."
+            ) from exc
+        print(
+            "PersonaChess base model: unavailable during inference; "
+            f"falling back to neural persona only ({type(exc).__name__}: {exc}).",
+            file=sys.stderr,
+            flush=True,
+        )
         return native_predictions[:top_k]
     return _blend_predictions(
         fen,

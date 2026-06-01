@@ -128,6 +128,7 @@ class PersonaChess:
         device: str | None = None,
         use_base_model: bool = True,
         base_model_weight: float = 0.65,
+        require_base_model: bool = False,
     ) -> list[MovePrediction]:
         active_checkpoint_dir = (
             Path(checkpoint_dir) if checkpoint_dir else self.neural_checkpoint_dir
@@ -143,6 +144,7 @@ class PersonaChess:
             device=device,
             use_base_model=use_base_model,
             base_model_weight=base_model_weight,
+            require_base_model=require_base_model,
         )
 
     def move(
@@ -152,6 +154,7 @@ class PersonaChess:
         device: str | None = None,
         use_base_model: bool = True,
         base_model_weight: float = 0.65,
+        require_base_model: bool = False,
     ) -> MovePrediction:
         if self.neural_checkpoint_dir is not None:
             return self.predict_neural(
@@ -160,6 +163,7 @@ class PersonaChess:
                 device=device,
                 use_base_model=use_base_model,
                 base_model_weight=base_model_weight,
+                require_base_model=require_base_model,
             )[0]
         return self.predict(fen, top_k=1)[0]
 

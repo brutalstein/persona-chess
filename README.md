@@ -61,6 +61,14 @@ move = bot.move("startpos")
 print(move.move_uci, move.san)
 ```
 
+To require the upstream base policy during inference, pass
+`require_base_model=True`. If the base model cannot be loaded, inference raises
+instead of falling back to the persona-only neural checkpoint:
+
+```python
+move = bot.move("startpos", device="cuda", require_base_model=True)
+```
+
 By default, persona checkpoints use `Maxlegrec/ChessBot` as the upstream base
 policy. It is a MIT-licensed FEN-based Transformer chess model that predicts
 moves from board positions. At inference time `bot.move(...)` blends that base

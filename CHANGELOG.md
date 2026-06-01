@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.2.5 - 2026-06-01
+
+- Fixed Hugging Face base model loading with newer Transformers releases for remote models that do not define `all_tied_weights_keys`.
+- Added an explicit `require_base_model` inference option so callers can fail loudly instead of falling back to persona-only neural inference.
+- Added a stderr warning when base-model blending is requested but unavailable.
+
 ## 0.2.4 - 2026-06-01
 
 - Added base-model cache preflight at training start; the default Hugging Face base model is downloaded once and reused from cache on later runs.

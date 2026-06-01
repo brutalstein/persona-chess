@@ -82,6 +82,7 @@ def ensure_hf_base_model_cached(
 def _load_hf_base_model(model_name: str, device: str) -> Any:
     transformers = _require_module("transformers")
     torch = _require_module("torch")
+    _patch_transformers_remote_model_compat(transformers)
     runtime = torch_runtime_info(torch, requested_device=device)
     print(
         "PersonaChess base model: "
@@ -103,6 +104,14 @@ def _load_hf_base_model(model_name: str, device: str) -> Any:
     model = model.to(device)
     model.eval()
     return model
+
+
+def _patch_transformers_remote_model_compat(transformers: Any) -> None:
+    pretrained_model = getattr(transformers, "PreTrainedModel", None)
+    if pretrained_model is None:
+        return
+    if not hasattr(pretrained_model, "all_tied_weights_keys"):
+        pretrained_model.all_tied_weights_keys = {}
 
 
 def _require_module(name: str) -> Any:
