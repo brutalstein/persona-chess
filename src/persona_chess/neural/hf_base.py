@@ -26,14 +26,13 @@ def predict_hf_base_moves(
     active_device = resolve_torch_device(torch, requested_device=device)
     model = _load_hf_base_model(model_name, active_device)
 
-    probabilities = model.get_move_from_fen_no_thinking(
-        board.fen(),
-        T=temperature,
+    probabilities = _predict_hf_base_probabilities(
+        torch,
+        model,
+        board=board,
         device=active_device,
-        return_probs=True,
+        temperature=temperature,
     )
-    if not isinstance(probabilities, dict):
-        return []
 
     legal_moves = {move.uci(): move for move in board.legal_moves}
     scored: list[tuple[chess.Move, float]] = []
@@ -47,6 +46,49 @@ def predict_hf_base_moves(
         MovePrediction.from_board(board, move=move, score=score, reason="hf_base_policy")
         for move, score in scored[:top_k]
     ]
+
+
+def _predict_hf_base_probabilities(
+    torch: Any,
+    model: Any,
+    *,
+    board: chess.Board,
+    device: str,
+    temperature: float,
+) -> dict[str, float]:
+    model_module = import_module(model.__class__.__module__)
+    policy_index = list(model_module.policy_index)
+    policy_lookup = {move: index for index, move in enumerate(policy_index)}
+    fen_to_tensor = model_module.fen_to_tensor
+    safe_temperature = max(float(temperature), 1e-6)
+
+    with torch.no_grad():
+        x = torch.from_numpy(fen_to_tensor(board.fen())).to(device).to(torch.float32)
+        x = x.view(1, 1, 8, 8, 19)
+        output = model(x)
+        logits = output.last_hidden_state if hasattr(output, "last_hidden_state") else output
+        logits = logits.view(-1, logits.size(-1))
+        legal_scores: list[tuple[str, int]] = []
+        for move in board.legal_moves:
+            move_uci = move.uci()
+            lookup_uci = move_uci[:-1] if move_uci.endswith("n") else move_uci
+            move_index = policy_lookup.get(lookup_uci)
+            if move_index is not None:
+                legal_scores.append((move_uci, move_index))
+        if not legal_scores:
+            return {}
+        legal_indices = torch.tensor(
+            [index for _, index in legal_scores],
+            dtype=torch.long,
+            device=device,
+        )
+        legal_logits = logits[0].gather(dim=0, index=legal_indices)
+        probabilities = torch.softmax(legal_logits / safe_temperature, dim=0).detach().cpu()
+
+    return {
+        move_uci: float(probability)
+        for (move_uci, _), probability in zip(legal_scores, probabilities.tolist(), strict=True)
+    }
 
 
 def download_hf_base_model(

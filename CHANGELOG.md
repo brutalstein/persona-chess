@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.2.7 - 2026-06-01
+
+- Changed Hugging Face base-policy scoring to read legal-move logits directly instead of calling the remote model's sampling helper, avoiding CUDA multinomial failures during required base-model inference.
+- Verified the base-policy training preflight and required base-model inference path with a CUDA smoke run.
+
 ## 0.2.6 - 2026-06-01
 
 - Added a mandatory default base-policy training preflight; training now verifies that `Maxlegrec/ChessBot` can load and return a legal move before starting.
