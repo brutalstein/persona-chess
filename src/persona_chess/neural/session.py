@@ -23,6 +23,7 @@ from persona_chess.neural.config import (
     NeuralTrainingConfig,
     TransformerPolicyConfig,
 )
+from persona_chess.neural.cuda import cuda_diagnostic_message, torch_runtime_info
 from persona_chess.neural.hf_base import DEFAULT_BASE_MODEL
 from persona_chess.neural.manifest import AdapterManifest
 from persona_chess.neural.model_hub import ModelRegistry, resolve_model_reference
@@ -272,6 +273,15 @@ class _ConsoleTrainingProgress:
         self.stream = stream or sys.stderr
         self.last_rendered_at = 0.0
         self.finished = False
+        runtime_text = ""
+        try:
+            torch = __import__("torch")
+            runtime = torch_runtime_info(torch)
+            runtime_text = (
+                f", torch={runtime.torch_version}, cuda_build={runtime.cuda_build or 'cpu'}"
+            )
+        except Exception:
+            runtime_text = ""
         hardware = auto_config.hardware
         device_detail = hardware.device_type
         if hardware.cuda_available and hardware.cuda_device_name:
@@ -285,10 +295,21 @@ class _ConsoleTrainingProgress:
             f"batch_size={auto_config.training.batch_size}, "
             f"grad_accum={auto_config.training.gradient_accumulation_steps}, "
             f"lora={'on' if use_lora else 'off'}, "
-            f"train={training_examples}, validation={validation_examples}",
+            f"train={training_examples}, validation={validation_examples}"
+            f"{runtime_text}",
             file=self.stream,
             flush=True,
         )
+        if not hardware.cuda_available:
+            try:
+                torch = __import__("torch")
+                print(
+                    f"PersonaChess training: CUDA not active. {cuda_diagnostic_message(torch)}",
+                    file=self.stream,
+                    flush=True,
+                )
+            except Exception:
+                pass
 
     def __call__(self, update: TrainingProgressUpdate) -> None:
         now = time.monotonic()

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "persona-chess"
-version = "0.2.1"
+version = "0.2.2"
 description = "Train lightweight chess personas from PGN files."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -28,7 +28,15 @@ classifiers = [
 ]
 dependencies = [
   "chess>=1.11.0",
+  "pandas>=2.0.0",
+  "peft>=0.13.0",
+  "safetensors>=0.4.0",
+  "scikit-learn>=1.4.0",
+  "scipy>=1.11.0",
+  "torch>=2.11.0",
+  "transformers>=4.48.1",
   "typer>=0.12.0",
+  "zstandard>=0.22.0",
 ]
 
 [project.optional-dependencies]
@@ -43,7 +51,7 @@ dev = [
 ml = [
   "peft>=0.13.0",
   "safetensors>=0.4.0",
-  "torch>=2.2.0",
+  "torch>=2.11.0",
   "transformers>=4.48.1",
 ]
 evaluation = [

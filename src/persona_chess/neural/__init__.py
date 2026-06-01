@@ -19,6 +19,12 @@ from persona_chess.neural.config import (
     NeuralTrainingConfig,
     TransformerPolicyConfig,
 )
+from persona_chess.neural.cuda import (
+    TorchRuntimeInfo,
+    cuda_diagnostic_message,
+    resolve_torch_device,
+    torch_runtime_info,
+)
 from persona_chess.neural.hf_base import (
     DEFAULT_BASE_MODEL,
     download_hf_base_model,
@@ -122,6 +128,7 @@ __all__ = [
     "PositionVocabulary",
     "RemoteModel",
     "StreamingNeuralArtifacts",
+    "TorchRuntimeInfo",
     "TrainingResult",
     "TrainingEpochResult",
     "TrainingProgressUpdate",
@@ -148,14 +155,17 @@ __all__ = [
     "load_torch_policy_state",
     "load_torch_training_state",
     "policy_batch_to_tensors",
+    "cuda_diagnostic_message",
     "prepare_streaming_neural_artifacts",
     "predict_policy_moves",
     "predict_policy_moves_from_checkpoint",
     "predict_hf_base_moves",
     "recommend_neural_config",
+    "resolve_torch_device",
     "resolve_model_reference",
     "save_torch_policy_checkpoint",
     "summarize_trainable_parameters",
+    "torch_runtime_info",
     "train_neural_persona",
     "train_neural_records",
     "train_policy_model",

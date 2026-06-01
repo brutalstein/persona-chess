@@ -1,3 +1,4 @@
+import sys
 from functools import lru_cache
 from importlib import import_module
 from pathlib import Path
@@ -8,6 +9,7 @@ import chess
 from persona_chess.chess.legal import board_from_fen
 from persona_chess.exceptions import OptionalDependencyError
 from persona_chess.models.types import MovePrediction
+from persona_chess.neural.cuda import resolve_torch_device, torch_runtime_info
 
 DEFAULT_BASE_MODEL = "Maxlegrec/ChessBot"
 
@@ -22,7 +24,7 @@ def predict_hf_base_moves(
 ) -> list[MovePrediction]:
     torch = _require_module("torch")
     board = board_from_fen(fen)
-    active_device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    active_device = resolve_torch_device(torch, requested_device=device)
     model = _load_hf_base_model(model_name, active_device)
 
     probabilities = model.get_move_from_fen_no_thinking(
@@ -54,7 +56,7 @@ def download_hf_base_model(
     device: str | None = None,
 ) -> Path | None:
     torch = _require_module("torch")
-    active_device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    active_device = resolve_torch_device(torch, requested_device=device)
     _load_hf_base_model(model_name, active_device)
     return None
 
@@ -62,6 +64,20 @@ def download_hf_base_model(
 @lru_cache(maxsize=4)
 def _load_hf_base_model(model_name: str, device: str) -> Any:
     transformers = _require_module("transformers")
+    torch = _require_module("torch")
+    runtime = torch_runtime_info(torch, requested_device=device)
+    print(
+        "PersonaChess base model: "
+        f"loading {model_name} on {runtime.selected_device} "
+        f"(torch={runtime.torch_version}, cuda_build={runtime.cuda_build or 'cpu'})",
+        file=sys.stderr,
+        flush=True,
+    )
+    print(
+        "PersonaChess base model: first load may download model weights from Hugging Face.",
+        file=sys.stderr,
+        flush=True,
+    )
     model = transformers.AutoModel.from_pretrained(
         model_name,
         trust_remote_code=True,
@@ -77,5 +93,5 @@ def _require_module(name: str) -> Any:
         return import_module(name)
     except ModuleNotFoundError as exc:
         raise OptionalDependencyError(
-            "Hugging Face base model support requires the ml extra: pip install 'persona-chess[ml]'"
+            "Missing runtime dependency. Install persona-chess with: pip install persona-chess"
         ) from exc

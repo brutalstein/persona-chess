@@ -11,6 +11,7 @@ from persona_chess.neural.config import (
     NeuralTrainingConfig,
     TransformerPolicyConfig,
 )
+from persona_chess.neural.cuda import resolve_torch_device
 from persona_chess.neural.lora import apply_lora_adapter, summarize_trainable_parameters
 from persona_chess.neural.samples import PolicyBatch
 from persona_chess.neural.torch_backend import (
@@ -421,18 +422,7 @@ class _PrecisionPlan:
 
 
 def _resolve_device(torch: Any, device: str | None) -> Any:
-    if device:
-        resolved_device = torch.device(device)
-        if resolved_device.type == "cuda" and not torch.cuda.is_available():
-            raise RuntimeError(
-                "CUDA was requested, but this PyTorch installation cannot use CUDA. "
-                "Install a PyTorch build that matches your NVIDIA driver/CUDA runtime, "
-                "or train with device='cpu'."
-            )
-        return resolved_device
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    return torch.device("cpu")
+    return torch.device(resolve_torch_device(torch, requested_device=device))
 
 
 def _resolve_precision_plan(

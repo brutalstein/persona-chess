@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.2.2 - 2026-06-01
+
+- Moved runtime ML, compressed PGN, and evaluation dependencies into the default install so `pip install persona-chess` is enough for the main workflow.
+- Added stricter CUDA diagnostics for CPU-only PyTorch builds, hidden CUDA devices, invalid CUDA device requests, and unusable visible GPUs.
+- Added clearer training and base-model loading messages with torch/CUDA runtime details.
+- Raised the PyTorch requirement to the CUDA 13.x-era stable line.
+
 ## 0.2.1 - 2026-06-01
 
 - Added real Hugging Face base-policy inference through `Maxlegrec/ChessBot`.

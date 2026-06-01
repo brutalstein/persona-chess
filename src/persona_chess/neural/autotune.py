@@ -6,6 +6,7 @@ from sys import platform
 from typing import Any, ClassVar, Literal, TypeAlias
 
 from persona_chess.neural.config import LoraConfig, NeuralTrainingConfig, TransformerPolicyConfig
+from persona_chess.neural.cuda import resolve_torch_device
 from persona_chess.neural.torch_backend import is_torch_available, require_torch
 
 NeuralConfigProfile: TypeAlias = Literal["auto", "small", "balanced", "large"]
@@ -78,8 +79,12 @@ def detect_hardware_profile(*, device: str | None = None) -> HardwareProfile:
 
     if torch_available and not forced_cpu:
         torch = require_torch()
-        if torch.cuda.is_available():
-            device_index = _parse_cuda_device_index(normalized_device)
+        try:
+            resolved_device = resolve_torch_device(torch, requested_device=device)
+        except RuntimeError:
+            resolved_device = "cpu"
+        if resolved_device.startswith("cuda"):
+            device_index = _parse_cuda_device_index(resolved_device)
             properties = torch.cuda.get_device_properties(device_index)
             cuda_available = True
             cuda_device_name = str(properties.name)

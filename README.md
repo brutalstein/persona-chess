@@ -12,15 +12,18 @@ profile reports, JSON artifacts, and a CLI.
 
 ```bash
 pip install persona-chess
-pip install "persona-chess[ml]"
-pip install "persona-chess[evaluation]"
-pip install "persona-chess[formats]"
 ```
 
+That single command installs the runtime stack used by the main workflow:
+PyTorch, Transformers, PEFT, compressed PGN support, and evaluation helpers.
+
 CUDA is handled through PyTorch. `persona-chess` uses CUDA automatically when the
-installed PyTorch build can see a compatible GPU; otherwise it safely trains on
-CPU. If CUDA is requested but unavailable, install the PyTorch wheel that matches
-your NVIDIA driver/CUDA runtime.
+installed PyTorch build can see a compatible GPU; otherwise it trains on CPU and
+prints a diagnostic message. If CUDA is requested but unavailable, the error
+explains whether the installed PyTorch wheel is CPU-only, whether CUDA is hidden,
+or whether the requested CUDA device is invalid. Current PyTorch stable wheels on
+PyPI target CUDA 13.x on supported platforms; follow the selector at
+https://pytorch.org/get-started/locally/ when you need a specific CUDA build.
 
 For local development:
 
